@@ -75,37 +75,50 @@ def _download_ckpt() -> None:
 def _patched_attn_forward(self, x):
     """Drop-in replacement for segment_anything Attention.forward.
 
-    Respects the `_STORE` flags (attn / head_out / entropy) and `self._ablate_heads`.
-    Shapes and numerics match the vanilla module exactly.
+    Shapes match SAM exactly: q/k/v live in collapsed `(B*nH, N, d_h)` form
+    during attention (required by `add_decomposed_rel_pos`, which unpacks
+    `B, N, dim` from `q.shape`).  For our interpretability artefacts we
+    reshape to `(B, nH, N, N)` / `(B, nH, N, d_h)`.  Respects `_STORE` flags
+    and `self._ablate_heads`.
     """
     B, H, W, _ = x.shape
-    qkv = self.qkv(x).reshape(B, H*W, 3, self.num_heads, -1).permute(2, 0, 3, 1, 4)
-    q, k, v = qkv.unbind(0)                                           # B,nH,N,d
-    attn = (q * self.scale) @ k.transpose(-2, -1)
+    nH = self.num_heads
+    qkv = self.qkv(x).reshape(B, H*W, 3, nH, -1).permute(2, 0, 3, 1, 4)
+    # collapse (B, nH) → one axis: q, k, v are (B*nH, N, d_h)
+    q, k, v = qkv.reshape(3, B * nH, H*W, -1).unbind(0)
+
+    attn = (q * self.scale) @ k.transpose(-2, -1)                     # (B*nH, N, N)
     if getattr(self, "use_rel_pos", False):
         from segment_anything.modeling.image_encoder import add_decomposed_rel_pos
         attn = add_decomposed_rel_pos(attn, q, self.rel_pos_h, self.rel_pos_w, (H, W), (H, W))
-    attn = attn.softmax(dim=-1)                                       # B,nH,N,N
+    attn = attn.softmax(dim=-1)
+
+    # reshape to per-head form for interpretability
+    attn_bh = attn.view(B, nH, H*W, H*W)
 
     if _STORE["entropy"]:
-        p = attn.clamp_min(1e-12)
+        p = attn_bh.clamp_min(1e-12)
         self._attn_entropy = (-(p * p.log()).sum(-1)).mean(dim=(0, 2)).detach().cpu()  # (nH,)
     else:
         self._attn_entropy = None
 
-    self._attn = attn.detach().float().cpu() if _STORE["attn"] else None
+    self._attn = attn_bh.detach().float().cpu() if _STORE["attn"] else None
+
+    # attention-weighted values (still in collapsed shape)
+    out = attn @ v                                                    # (B*nH, N, d_h)
+    out_bh = out.view(B, nH, H*W, -1)                                 # (B, nH, N, d_h)
 
     abl = getattr(self, "_ablate_heads", None)
-    out = attn @ v                                                    # B,nH,N,d
     if abl:
-        out = out.clone()
+        out_bh = out_bh.clone()
         for h_idx in abl:
-            out[:, h_idx] = 0.0
+            out_bh[:, h_idx] = 0.0
 
-    self._head_out = out.detach().float().cpu() if _STORE["head_out"] else None
+    self._head_out = out_bh.detach().float().cpu() if _STORE["head_out"] else None
 
-    out = out.transpose(1, 2).reshape(B, H, W, -1)
-    return self.proj(out)
+    # SAM's final reshape: (B, nH, H, W, d_h) → (B, H, W, nH, d_h) → (B, H, W, D)
+    x_out = out_bh.view(B, nH, H, W, -1).permute(0, 2, 3, 1, 4).reshape(B, H, W, -1)
+    return self.proj(x_out)
 
 
 def _install_taps(enc) -> None:
