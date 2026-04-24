@@ -28,6 +28,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import silhouette_samples
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import StratifiedKFold, cross_val_predict
 from sklearn.preprocessing import StandardScaler
@@ -76,36 +77,62 @@ def main(sweep_blocks: int = 4) -> None:
 
     # ==================================================
     # (A) Full (block, head) ablation sweep
-    # Per-class score = CV-predicted accuracy on held-out folds, per class.
-    # (Training accuracy is near 1.0 for 40x768 features regardless of the
-    # ablation, which would make the asymmetry column meaningless.)
+    #
+    # With X-ray vs MRI, linear-probe CV accuracy saturates at 1.0 for both
+    # classes — classifier-level metrics can't distinguish ablations.
+    # We use two continuous, class-conditional metrics instead:
+    #   * per-class silhouette  (sklearn.metrics.silhouette_samples → mean over
+    #     each class's samples) — sensitive to cluster tightness/separation;
+    #   * per-class cosine coherence (mean pairwise cos-sim within the class) —
+    #     sensitive to cluster spread.
+    # Both are monotonic proxies for "how much did THIS class's cluster get
+    # damaged by the ablation". A positive asymmetry on either metric means
+    # MRI was hurt more than X-ray.
     # ==================================================
     cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=config.SEED)
 
-    def _per_class_cv_acc(feats: np.ndarray) -> tuple[float, float]:
-        Xs = StandardScaler().fit_transform(feats)
+    def _per_class_stats(feats: np.ndarray) -> dict:
+        Xs  = StandardScaler().fit_transform(feats)
+        # per-class silhouette (cluster compactness vs. separation)
+        sil = silhouette_samples(Xs, y)
+        sil_x = float(sil[y == 0].mean())
+        sil_m = float(sil[y == 1].mean())
+        # per-class intra-cluster cosine coherence
+        S  = cosine_similarity(Xs)
+        xi = np.where(y == 0)[0]; mi = np.where(y == 1)[0]
+        coh_x = float(S[np.ix_(xi, xi)][np.triu_indices(len(xi), 1)].mean())
+        coh_m = float(S[np.ix_(mi, mi)][np.triu_indices(len(mi), 1)].mean())
+        # still useful: CV acc, for completeness in the CSV
         pred = cross_val_predict(LogisticRegression(max_iter=500), Xs, y, cv=cv)
         acc_x = float((pred[y == 0] == 0).mean())
         acc_m = float((pred[y == 1] == 1).mean())
-        return acc_x, acc_m
+        return dict(sil_x=sil_x, sil_m=sil_m,
+                    coh_x=coh_x, coh_m=coh_m,
+                    acc_x=acc_x, acc_m=acc_m)
 
-    base_acc_x, base_acc_m = _per_class_cv_acc(base_feats)
-    print(f"[q3] baseline per-class CV acc: X-ray={base_acc_x:.3f}, MRI={base_acc_m:.3f}")
+    base_stats = _per_class_stats(base_feats)
+    print(f"[q3] baseline per-class stats: sil_x={base_stats['sil_x']:.3f} "
+          f"sil_m={base_stats['sil_m']:.3f}  coh_x={base_stats['coh_x']:.3f} "
+          f"coh_m={base_stats['coh_m']:.3f}")
 
     rows = []
     for b, h in tqdm(list(product(sweep_blocks, range(n_heads))),
                      desc="q3/ablating"):
         set_ablation(b, h)
         feats = _encode_pooled_at(target, images)
-        m     = separation_metrics(feats, y)
-        acc_x, acc_m = _per_class_cv_acc(feats)
+        mtr   = separation_metrics(feats, y)
+        cc    = _per_class_stats(feats)
         rows.append(dict(
             block=b, head=h,
-            sil=m["silhouette"], fisher=m["fisher"], lp=m["linear_probe"],
-            acc_xray=acc_x, acc_mri=acc_m,
-            delta_acc_xray=base_acc_x - acc_x,
-            delta_acc_mri =base_acc_m - acc_m,
-            delta_sil=base["silhouette"] - m["silhouette"],
+            sil=mtr["silhouette"], fisher=mtr["fisher"], lp=mtr["linear_probe"],
+            acc_xray=cc["acc_x"], acc_mri=cc["acc_m"],
+            sil_xray=cc["sil_x"], sil_mri=cc["sil_m"],
+            coh_xray=cc["coh_x"], coh_mri=cc["coh_m"],
+            delta_sil_xray=base_stats["sil_x"] - cc["sil_x"],
+            delta_sil_mri =base_stats["sil_m"] - cc["sil_m"],
+            delta_coh_xray=base_stats["coh_x"] - cc["coh_x"],
+            delta_coh_mri =base_stats["coh_m"] - cc["coh_m"],
+            delta_sil     =base["silhouette"] - mtr["silhouette"],
         ))
         if len(rows) % 10 == 0:
             pd.DataFrame(rows).to_csv(
@@ -129,20 +156,21 @@ def main(sweep_blocks: int = 4) -> None:
     cb = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
     cb.set_label(r"$\Delta$ silhouette", fontsize=9)
 
-    # Asymmetric head = biggest MRI accuracy drop + smallest X-ray accuracy drop.
-    # (Matches the Q3 prompt scenario exactly.)
-    abl_df["asym"] = abl_df["delta_acc_mri"] - abl_df["delta_acc_xray"]
+    # Asymmetric head = biggest MRI silhouette drop + smallest X-ray silhouette
+    # drop. Silhouette is sensitive even when CV accuracy saturates at 1.0.
+    # NB: use bracket access everywhere — `top.head` is the pandas Series.head()
+    # method, not the 'head' column.
+    abl_df["asym"] = abl_df["delta_sil_mri"] - abl_df["delta_sil_xray"]
     top = abl_df.sort_values("asym", ascending=False).iloc[0]
-    ax.scatter([top["head"]], [sweep_blocks.index(int(top["block"]))],
-               s=80, marker="o", facecolors="none",
-               edgecolors="black", linewidths=1.2)
-    ax.annotate(f"asym. head\n(B{int(top.block)}, H{int(top.head)})",
-                (top["head"], sweep_blocks.index(int(top["block"]))),
-                textcoords="offset points", xytext=(8, 8), fontsize=8)
-    save_fig(fig, "fig6_head_importance_q3"); plt.close(fig)
-
     ABL_B = int(top["block"])
     ABL_H = int(top["head"])
+    ax.scatter([ABL_H], [sweep_blocks.index(ABL_B)],
+               s=80, marker="o", facecolors="none",
+               edgecolors="black", linewidths=1.2)
+    ax.annotate(f"asym. head\n(B{ABL_B}, H{ABL_H})",
+                (ABL_H, sweep_blocks.index(ABL_B)),
+                textcoords="offset points", xytext=(8, 8), fontsize=8)
+    save_fig(fig, "fig6_head_importance_q3"); plt.close(fig)
     print(f"[q3] asymmetric head: B{ABL_B}.H{ABL_H}")
 
     # ==================================================

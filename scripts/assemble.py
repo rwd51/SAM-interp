@@ -57,9 +57,10 @@ def main() -> None:
     print("\n" + r"% ---------- Table 2 : Q3 top-3 ablations ----------")
     print(r"\begin{tabular}{ccccc}\toprule")
     print(r"Block & Head & $\Delta$Silh. & Acc. X-ray & Acc. MRI \\\midrule")
+    # NB: use r["head"] not r.head — Series.head is a method.
     for _, r in abl.sort_values("delta_sil", ascending=False).head(3).iterrows():
-        print(f"{int(r.block)} & {int(r.head)} & {r.delta_sil:.3f} & "
-              f"{r.acc_xray:.2f} & {r.acc_mri:.2f} \\\\")
+        print(f"{int(r['block'])} & {int(r['head'])} & {r['delta_sil']:.3f} & "
+              f"{r['acc_xray']:.2f} & {r['acc_mri']:.2f} \\\\")
     print(r"\bottomrule\end{tabular}")
 
     print("\n[assemble] artefacts:")
