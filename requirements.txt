@@ -1,0 +1,8 @@
+# Only packages NOT preinstalled on Colab are listed here.
+# Colab already has: torch, torchvision, numpy, pandas, scikit-learn, seaborn,
+# matplotlib, Pillow, tqdm, huggingface_hub.
+segment-anything @ git+https://github.com/facebookresearch/segment-anything.git
+umap-learn>=0.5
+nibabel>=5.0
+datasets>=2.18
+einops>=0.7
