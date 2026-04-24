@@ -140,12 +140,17 @@ def load_sam():
 
 def _meta() -> dict:
     assert _enc is not None
+    # SAM's ImageEncoderViT doesn't expose global_attn_indexes as an attribute —
+    # it's only used at __init__ to set per-block window_size. Global-attn blocks
+    # have window_size == 0; windowed blocks have window_size == 14.
+    global_attn = [i for i, blk in enumerate(_enc.blocks)
+                   if getattr(blk, "window_size", 0) == 0]
     return dict(
         n_blocks    = len(_enc.blocks),
         embed_dim   = _enc.blocks[0].attn.qkv.in_features,
         n_heads     = _enc.blocks[0].attn.num_heads,
         patch_hw    = PATCH_HW,
-        global_attn = list(_enc.global_attn_indexes),
+        global_attn = global_attn,
     )
 
 
