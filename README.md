@@ -15,10 +15,10 @@ CMU_SAM/
 ├── requirements.txt
 ├── run_all.py                 # one-shot driver
 ├── src/
-│   ├── config.py              # paths, seeds, SAM / MSD constants
+│   ├── config.py              # paths, seeds, SAM / CHAOS constants
 │   ├── viz.py                 # NeurIPS-style matplotlib defaults + save_fig
 │   ├── model.py               # SAM loader, hooked Attention.forward, encode(), ablation
-│   ├── data.py                # chest X-ray (HF NIH) + prostate MRI (MSD Task05) loaders
+│   ├── data.py                # NIH ChestX-ray14 (HF parquet) + CHAOS T2-SPIR abdominal MRI (Zenodo) loaders
 │   └── metrics.py             # silhouette / Fisher / linear-probe / k-NN / linear-CKA
 └── scripts/
     ├── download.py            # pulls data, saves Fig. 1
@@ -75,7 +75,7 @@ You need a CUDA GPU with ≥ 10 GB for the full sweep; CPU works but is slow.
 
 | stage        | time       | notes                                       |
 |--------------|------------|---------------------------------------------|
-| `download`   | ~2 min     | 375 MB SAM + 230 MB MSD, cached thereafter  |
+| `download`   | ~5 min     | 375 MB SAM + ~890 MB CHAOS + NIH stream, cached thereafter |
 | `q1`         | ~3 min     | 40 forwards × 12 blocks, entropy on-the-fly |
 | `q2`         | ~1 min     | CPU-bound sklearn                           |
 | `q3` default | ~50 min    | 48 (block × head) ablations × 40 images     |
@@ -85,7 +85,8 @@ You need a CUDA GPU with ≥ 10 GB for the full sweep; CPU works but is slow.
 ## Design notes
 
 - **ViT-B, not ViT-H.** ViT-H at 1024² with per-block hooks OOMs a free T4. The interpretability conclusions carry over; architecture is identical except depth (12→32) and width (768→1280).
-- **Prostate (Task05) MRI** instead of abdominal (CHAOS) MRI. CHAOS requires a signup that blocks one-shot Colab runs. Prostate is pelvic/lower-abdominal and the smallest MSD MRI task. If you have CHAOS locally, drop PNGs into `$SAM_INTERP_ROOT/data/mri/` before running — `q1` will use them.
+- **Exact datasets from the task prompt:** NIH ChestX-ray14 for chest X-rays (served via HF Parquet mirrors since the original loading-script repos stopped working in `datasets` v4.5+) and CHAOS T2-SPIR abdominal MRI (public Zenodo mirror — the challenge portal gates behind signup, but the Zenodo record is open-access).
+- **One mid-axial slice per CHAOS case.** CHAOS has 20 MRI cases; we take the middle slice of each T2-SPIR stack → 20 well-centered abdominal views covering liver / kidneys / spleen / bowel.
 - **Mean-pool over patches for Q2.** SAM has no CLS token; max-pool and mean-pool give qualitatively identical answers here.
 - **Three metrics for Q2**, not one. Silhouette (geometric), Fisher (statistical), linear probe (discriminative) — layer-picking is robust only when all three agree.
 - **Q3 goes beyond the prompt.** The task asks for hypotheses and test designs on a hypothetical ablation result. We actually perform the sweep (Fig. 6), then run both hypothesis tests (H1 via activation norms; H2 via CKA + pair-ablation) on the measured asymmetric head (Fig. 7). Evidence-backed answer.

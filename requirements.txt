@@ -3,6 +3,6 @@
 # matplotlib, Pillow, tqdm, huggingface_hub.
 segment-anything @ git+https://github.com/facebookresearch/segment-anything.git
 umap-learn>=0.5
-nibabel>=5.0
+pydicom>=2.4
 datasets>=2.18
 einops>=0.7

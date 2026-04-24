@@ -4,21 +4,21 @@
                  (the original `alkzar90/NIH-Chest-X-ray-dataset` uses a
                  loading script, which HF `datasets` v4.5+ dropped support
                  for; we use the auto-converted parquet mirrors instead).
-- MRI slices   : MSD Task05 Prostate (pelvic/lower-abdominal T2 MRI).
+- MRI slices   : CHAOS T2-SPIR abdominal MRI (Zenodo mirror, no signup).
+                 20 cases × one mid-axial slice each.
 """
 from __future__ import annotations
 
-import subprocess
 import urllib.request
+import zipfile
 from pathlib import Path
 from typing import List, Tuple
 
-import nibabel as nib
 import numpy as np
 from PIL import Image
 
 from src.config import (
-    DATA_DIR, MRI_DIR, MSD_ROOT, MSD_TAR, MSD_URL,
+    CHAOS_ROOT, CHAOS_URL, CHAOS_ZIP, DATA_DIR, MRI_DIR,
     N_MRI, N_XRAY, XRAY_DIR,
 )
 
@@ -74,39 +74,70 @@ def download_xrays(n: int = N_XRAY) -> List[Path]:
         f"Last error: {last_err}")
 
 
-# -------------------------- MRI ----------------------------------------------
+# -------------------------- abdominal MRI (CHAOS T2-SPIR) --------------------
 
-def _ensure_msd() -> None:
-    if MSD_ROOT.exists():
+def _ensure_chaos() -> None:
+    """Download + extract the CHAOS training set if not already on disk."""
+    if CHAOS_ROOT.exists():
         return
-    if not MSD_TAR.exists():
-        print(f"[data] downloading MSD Task05 Prostate -> {MSD_TAR}")
-        urllib.request.urlretrieve(MSD_URL, MSD_TAR)
-    print(f"[data] extracting {MSD_TAR}")
-    subprocess.run(["tar", "-xf", str(MSD_TAR), "-C", str(DATA_DIR)], check=True)
+    if not CHAOS_ZIP.exists():
+        print(f"[data] downloading CHAOS_Train_Sets ({CHAOS_URL}) -> {CHAOS_ZIP}")
+        urllib.request.urlretrieve(CHAOS_URL, CHAOS_ZIP)
+    print(f"[data] extracting {CHAOS_ZIP}  (~2 GB disk)")
+    CHAOS_ROOT.mkdir(exist_ok=True)
+    with zipfile.ZipFile(CHAOS_ZIP) as z:
+        z.extractall(CHAOS_ROOT)
+
+
+def _load_dicom_slice(dcm_path: Path) -> np.ndarray:
+    """Read a DICOM file, return uint8 grayscale image. pydicom is lazy-imported
+    so the package only becomes a hard dep when MRI is actually downloaded."""
+    import pydicom
+    ds = pydicom.dcmread(str(dcm_path))
+    arr = ds.pixel_array.astype(np.float32)
+    lo, hi = np.percentile(arr, 1), np.percentile(arr, 99)
+    arr = np.clip(arr, lo, hi)
+    arr = (arr - arr.min()) / (arr.max() - arr.min() + 1e-8)
+    return (arr * 255).astype(np.uint8)
 
 
 def download_mri(n: int = N_MRI) -> List[Path]:
+    """Take one mid-axial T2-SPIR slice from each of the first `n` CHAOS cases.
+
+    CHAOS has 20 MRI cases, so n is clamped to 20. Each case's DICOM folder
+    holds ~26–40 axial slices; we grab the middle one per case to get 20
+    diverse, well-centered abdominal views.
+    """
     existing = sorted(MRI_DIR.glob("mri_*.png"))
     if len(existing) >= n:
         print(f"[data] re-using {len(existing)} cached MRI slices")
         return existing[:n]
 
-    _ensure_msd()
-    nii_files = sorted((MSD_ROOT / "imagesTr").glob("prostate_*.nii.gz"))[:n]
+    _ensure_chaos()
+    # Zenodo bundles sometimes nest as Train_Sets/MR, sometimes as just MR;
+    # find the "MR" directory anywhere under CHAOS_ROOT.
+    mr_root = next((p for p in CHAOS_ROOT.rglob("MR") if p.is_dir()), None)
+    if mr_root is None:
+        raise RuntimeError(
+            f"CHAOS MR folder not found anywhere under {CHAOS_ROOT}. "
+            "Extraction may have failed — check the zip contents.")
+
+    cases = sorted([p for p in mr_root.iterdir() if p.is_dir()])
+    n = min(n, len(cases))
     paths = []
-    for i, nii in enumerate(nii_files):
-        vol = nib.load(str(nii)).get_fdata()
-        if vol.ndim == 4: vol = vol[..., 0]                   # T2 channel
-        sl = vol[:, :, vol.shape[2] // 2]
-        lo, hi = np.percentile(sl, 1), np.percentile(sl, 99)
-        sl = np.clip(sl, lo, hi)
-        sl = ((sl - sl.min()) / (sl.max() - sl.min() + 1e-8) * 255).astype(np.uint8)
-        sl = np.rot90(sl)
-        p  = MRI_DIR / f"mri_{i:02d}.png"
-        Image.fromarray(sl).convert("L").save(p)
+    for i, case in enumerate(cases[:n]):
+        dcm_dir = case / "T2SPIR" / "DICOM_anon"
+        dcms = sorted(dcm_dir.glob("*.dcm"))
+        if not dcms:
+            print(f"[data]   case {case.name}: no DICOMs in {dcm_dir}, skipping")
+            continue
+        mid = dcms[len(dcms) // 2]
+        img = _load_dicom_slice(mid)
+        p = MRI_DIR / f"mri_{i:02d}.png"
+        Image.fromarray(img).convert("L").save(p)
         paths.append(p)
-    print(f"[data] saved {len(paths)} MRI slices -> {MRI_DIR}")
+
+    print(f"[data] saved {len(paths)} CHAOS T2-SPIR abdominal MRI slices -> {MRI_DIR}")
     return paths
 
 

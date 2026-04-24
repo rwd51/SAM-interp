@@ -35,9 +35,16 @@ PATCH_HW      = 64                 # 1024 / 16
 # -- data --
 N_XRAY   = 20
 N_MRI    = 20
-MSD_URL  = "https://msd-for-monai.s3.us-east-1.amazonaws.com/Task05_Prostate.tar"
-MSD_TAR  = DATA_DIR / "Task05_Prostate.tar"
-MSD_ROOT = DATA_DIR / "Task05_Prostate"
+
+# NIH X-ray mirror is resolved at runtime (see src/data.py). No URL here.
+
+# CHAOS abdominal MRI (Combined Healthy Abdominal Organ Segmentation) — public
+# Zenodo mirror of the MICCAI CHAOS challenge. 20 cases × T2-SPIR DICOMs; we
+# take one mid-axial slice per case → 20 abdominal MRI slices.
+CHAOS_URL  = "https://zenodo.org/records/3431873/files/CHAOS_Train_Sets.zip?download=1"
+CHAOS_ZIP  = DATA_DIR / "CHAOS_Train_Sets.zip"
+CHAOS_ROOT = DATA_DIR / "CHAOS_Train_Sets"
+
 XRAY_DIR = DATA_DIR / "xray"
 MRI_DIR  = DATA_DIR / "mri"
 XRAY_DIR.mkdir(exist_ok=True)
