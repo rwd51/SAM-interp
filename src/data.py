@@ -1,6 +1,9 @@
 """Dataset download + loading. Idempotent: skips anything already on disk.
 
-- Chest X-rays : HuggingFace mirror of NIH ChestX-ray14 (`sample` config).
+- Chest X-rays : NIH ChestX-ray14 via Parquet mirrors on HuggingFace
+                 (the original `alkzar90/NIH-Chest-X-ray-dataset` uses a
+                 loading script, which HF `datasets` v4.5+ dropped support
+                 for; we use the auto-converted parquet mirrors instead).
 - MRI slices   : MSD Task05 Prostate (pelvic/lower-abdominal T2 MRI).
 """
 from __future__ import annotations
@@ -22,28 +25,24 @@ from src.config import (
 
 # -------------------------- chest X-rays -------------------------------------
 
-# Ordered list of (repo_id, kwargs) tuples to try. The first one that streams
-# `n` decodable images wins. If a repo changes its loader script we just fall
-# through to the next option; the user doesn't need to intervene.
-_XRAY_CANDIDATES = [
-    ("alkzar90/NIH-Chest-X-ray-dataset",
-        dict(split="train", streaming=True, trust_remote_code=True)),
-    ("alkzar90/NIH-Chest-X-ray-dataset",
-        dict(name="sample", split="train", streaming=True, trust_remote_code=True)),
-    ("keremberke/chest-xray-classification",
-        dict(name="full", split="train", streaming=True)),
+# NIH ChestX-ray14 parquet mirrors (no loading scripts → work with HF datasets
+# v4.5+). The "small" mirror is 7.3k images / 3 GB total; streaming only pulls
+# the first ~20 before we break out, so bandwidth is trivial.
+_XRAY_PARQUET_MIRRORS = [
+    ("Sohaibsoussi/NIH-Chest-X-ray-dataset-small", "train"),   # ~3 GB total
+    ("BahaaEldin0/NIH-Chest-Xray-14",              "train"),   # full 112k / 45 GB
 ]
 
 
-def _try_stream(n: int, repo: str, kwargs: dict) -> List[Path]:
+def _try_stream(repo: str, split: str, n: int) -> List[Path]:
     from datasets import load_dataset
-    ds = load_dataset(repo, **kwargs)
+    ds = load_dataset(repo, split=split, streaming=True)
     paths = []
     for i, item in enumerate(ds):
         if i >= n: break
         img = item.get("image") or item.get("img") or item.get("pixel_values")
-        if img is None:                         # unknown key schema
-            raise KeyError(f"no image field in item keys: {list(item.keys())}")
+        if img is None:
+            raise KeyError(f"no image field in {repo}; keys: {list(item.keys())}")
         if img.mode not in ("L", "RGB"): img = img.convert("L")
         p = XRAY_DIR / f"xray_{i:02d}.png"
         img.save(p); paths.append(p)
@@ -51,27 +50,27 @@ def _try_stream(n: int, repo: str, kwargs: dict) -> List[Path]:
 
 
 def download_xrays(n: int = N_XRAY) -> List[Path]:
-    """Stream `n` chest X-rays from the first working HuggingFace mirror."""
+    """Stream `n` NIH ChestX-ray14 images from the first working parquet mirror."""
     existing = sorted(XRAY_DIR.glob("xray_*.png"))
     if len(existing) >= n:
         print(f"[data] re-using {len(existing)} cached X-rays")
         return existing[:n]
 
     last_err = None
-    for repo, kwargs in _XRAY_CANDIDATES:
+    for repo, split in _XRAY_PARQUET_MIRRORS:
         try:
-            print(f"[data] trying X-ray source: {repo} ({kwargs})")
-            paths = _try_stream(n, repo, kwargs)
+            print(f"[data] streaming NIH X-rays from {repo} (split={split})")
+            paths = _try_stream(repo, split, n)
             if len(paths) >= n:
-                print(f"[data] saved {len(paths)} X-rays from {repo} -> {XRAY_DIR}")
+                print(f"[data] saved {len(paths)} NIH X-rays from {repo} -> {XRAY_DIR}")
                 return paths
-        except Exception as e:                  # noqa: BLE001
+        except Exception as e:                       # noqa: BLE001
             last_err = e
             print(f"[data]   skipped ({type(e).__name__}: {e})")
 
     raise RuntimeError(
-        "All X-ray HF sources failed. As a fallback, drop 10–30 chest X-ray "
-        f"PNG/JPG files into {XRAY_DIR} (any filenames) and rerun. "
+        "All NIH X-ray mirrors failed. Fallback: drop 10–30 chest X-ray PNG "
+        f"files into {XRAY_DIR} and rerun — load_all() will pick them up. "
         f"Last error: {last_err}")
 
 
