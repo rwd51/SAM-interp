@@ -15,6 +15,7 @@ def main() -> None:
     keys = [
         "fig2_layerwise_q1",
         "fig3_attention_maps_q1",
+        "fig8_layerwise_cka",
         "fig4_separation_metrics_q2",
         "fig5_pca_umap_q2",
         "fig6_head_importance_q3",
@@ -23,16 +24,17 @@ def main() -> None:
     labels = [
         "(A) Q1 — layer-wise representation drift",
         "(B) Q1 — attention heat-maps across depth",
-        "(C) Q2 — per-layer modality separation",
-        "(D) Q2 — PCA / UMAP of the last four blocks",
-        "(E) Q3 — causal head-importance heat-map",
-        "(F) Q3 — hypothesis tests on the asymmetric head",
+        "(C) Q1 — layer-wise CKA (representational drift)",
+        "(D) Q2 — per-layer modality separation",
+        "(E) Q2 — PCA / UMAP of the last four blocks",
+        "(F) Q3 — causal head-importance heat-map",
+        "(G) Q3 — hypothesis tests on the asymmetric head",
     ]
 
     images = {k: Image.open(config.FIG_DIR / f"{k}.png") for k in keys}
-    fig = plt.figure(figsize=(7.0, 8.2))
-    gs  = GridSpec(6, 1, hspace=0.35,
-                   height_ratios=[2.2, 3.0, 1.9, 3.4, 2.0, 2.4])
+    fig = plt.figure(figsize=(7.0, 10.6))
+    gs  = GridSpec(7, 1, hspace=0.35,
+                   height_ratios=[2.2, 3.0, 3.6, 1.9, 3.4, 2.0, 2.4])
     for i, (lab, k) in enumerate(zip(labels, keys)):
         ax = fig.add_subplot(gs[i]); ax.axis("off")
         ax.imshow(images[k])

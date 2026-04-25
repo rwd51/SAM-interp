@@ -9,7 +9,7 @@
 |---|---|
 | **Q1** | Representations drift continuously with depth. No medical-specific features "emerge"; SAM retains enough low-level discriminators to separate modalities despite never having seen one. Cross-modality cosine similarity *rises* with depth (0.76 → 0.87) while cluster separation is preserved — absolute angular distance decreases, variance compresses, geometry remains discriminative. |
 | **Q2** | **Block 8 produces the clearest separation** (silhouette 0.471, Fisher 2.469), with monotonic decline to block 11 (0.454 / 2.263). Linear probe and 5-NN saturate at 100% for all four blocks — continuous geometric metrics are the informative signal, classification metrics are at ceiling. |
-| **Q3** | Single-head ablations in blocks 10–11 produce **only small, distributed effects** (|Δsilhouette| ≲ 0.005 on a baseline of 0.454). No single head is a dominant bottleneck. The measured "asymmetric head" (B11, H4) activates strongly on both modalities (rejects H1) and has uniformly high CKA to other heads (weakly supports H2). Evidence favours **distributed redundancy over head-level specialisation** as the mechanism of modality separation in SAM's final encoder blocks. |
+| **Q3** | Across the full last-4-blocks sweep, single-head ablations produce **small, distributed effects** (max |Δsilhouette| = 0.013, 2.8% of the 0.454 baseline). The measured asymmetric head **(B8, H0)** has the prompt-matching signature (MRI cluster hurt, X-ray cluster untouched) but at only +0.75% silhouette — too small to pin the mechanism on one head. The head activates ~equally on both modalities (rejects H1) and CKA to siblings is near-symmetric (rejects H2). Verdict: **H3 — distributed modality signal**, with block 8 carrying the strongest causal load (consistent with Q2's block-8 peak). |
 
 ---
 
@@ -114,7 +114,7 @@ Per the task prompt: assume ablating head *k* in layer *L* drops MRI dice by *x%
 
 ### 4.3 Empirical approach
 
-We performed a **full (block × head) ablation sweep** over the last 2 encoder blocks (24 ablations × 40 images, ~8 min on a T4). For each ablation we measured:
+We performed a **full (block × head) ablation sweep** over the last 4 encoder blocks (48 ablations × 40 images, ~35 min on a T4). For each ablation we measured:
 
 - Overall separation (silhouette, Fisher, linear probe).
 - **Per-class silhouette** — `silhouette_samples` averaged over each class. Sensitive even when classification accuracy saturates at 1.0.
@@ -128,37 +128,65 @@ Positive = MRI cluster hurt more than X-ray cluster.
 
 | Signal | Observation |
 |---|---|
-| Dynamic range | ±0.005 — two orders of magnitude smaller than the 0.454 baseline silhouette. |
-| Block 10 | Mostly near-zero or slightly positive Δsil. No strong effects. |
-| Block 11 | Head 1 is strongly *negative* (ablation *improves* overall silhouette by +0.007). Heads 5–7 are slightly negative. Head 11 is slightly positive. |
-| Asymmetric pick | **(B11, H4)** with Δsil = −0.003, `asym = +0.0035`. |
+| Dynamic range | ±0.013 across the full last-4-block sweep — small relative to the 0.454 baseline silhouette (max ~2.8%). |
+| Block 8 | **By far the most causally active block.** Head 10 ablation *improves* overall silhouette by +0.013 (i.e. H10 was hurting separation when present); Head 11 *worsens* it by −0.013. Heads 2 and 6 produce smaller positive effects (~+0.006). |
+| Block 9 | Nearly flat — all 12 heads produce |Δsil| < 0.003. |
+| Block 10 | Nearly flat — same as block 9. |
+| Block 11 | Head 1 ablation produces +0.007 (X-ray cluster gets cleaner). Heads 5–7 produce small negative effects. |
+| Asymmetric pick | **(B8, H0)** with Δsil = −0.004, asymmetry +0.0077 (`delta_sil_mri = +0.0075` vs `delta_sil_xray = −0.00016`). This matches the prompt's literal scenario — MRI cluster hurt, X-ray cluster untouched — but at <1% of the baseline. |
 
-**Headline finding:** no single head in the sweep range is a dominant causal contributor to modality separation. Effects are small (∼1% of the baseline) and distributed across heads.
+**Headline finding:** Block 8 carries the most causal load (consistent with Q2's finding that block 8 produces the peak modality separation), but **no single head in any of the last 4 blocks dominates** — the largest single-head effect (B8.H10 / B8.H11) is just 2.8% of baseline silhouette. Effects are small and distributed across heads, with paired heads (B8.H10 helping, B8.H11 hurting) suggesting **within-block specialisation that is *not* aligned to modality**.
 
 ### 4.5 Hypothesis tests on the picked head (Fig. 7)
 
-The most-asymmetric head, B11.H4, was probed against both hypotheses:
+The most-asymmetric head, **B8.H0**, was probed against both hypotheses. The decision rules baked into `scripts/q3.py` are:
 
-**(a) H1 — per-head activation norm.** H4 has norms of **3.4 (X-ray)** and **3.8 (MRI)** — active on both modalities, not dead on either. **H1 is rejected** for this head: it is not a modality-specialist silent on X-ray.
+```
+H1 supported  if  norm_ratio MRI/X-ray > 2.0  or  < 0.5     (modality-specialist)
+H2 supported  if  mean |CKA_xray − CKA_mri| > 0.10  AND  pair-partner exists
+H3 supported  if  max |Δsil| < 5% of baseline silhouette  AND  H1, H2 both rejected
+```
 
-**(b) H2 — CKA to sibling heads.** H4's per-modality output is highly similar to most other heads (CKA ≈ 0.75–0.85) on *both* modalities. The overlap pattern is nearly identical between X-ray and MRI, i.e. H4 is not uniquely redundant on one modality and unique on the other. **H2 is weakly supported at most**: H4 is generally redundant, but the asymmetry that H2 predicts is not present.
+**(a) H1 — per-head activation norm.** B8.H0 has norms of **5.35 (X-ray)** and **5.61 (MRI)** — norm ratio = 1.05, near-perfectly balanced. The head is robustly active on both modalities, not silent on either. **H1 is rejected.**
 
-**(c) H2 — pair-ablation probe.** Co-ablating H4 with each of the other 11 heads in B11 and measuring X-ray cluster coherence gives an almost-flat bar chart (all ≈ 1.05–1.07). No specific partner head, when jointly removed, causes the X-ray cluster to collapse. **No compensating sibling can be identified**, again weakening H2.
+**(b) H2 — CKA to sibling heads.** Mean |CKA_xray − CKA_mri| across the 11 sibling heads is **0.084** — just below the 0.10 threshold. CKA values themselves are high (~0.65–0.95) for both modalities, and the X-ray vs MRI patterns are nearly parallel rather than divergent. The head is moderately redundant overall, but not *asymmetrically* redundant. **H2 is rejected** under our threshold rules (and would be only weakly supported even if we relaxed them).
+
+**(c) H2 — pair-ablation probe.** Co-ablating B8.H0 with each of the other 11 sibling heads gives X-ray cluster coherence values 1.04–1.08 (best partner H10, drop = 1.077). The bar chart is essentially flat — no compensating partner head exists whose joint removal would expose B8.H0 as a unique X-ray-side carrier. **H2 fails at the pair-redundancy step.**
+
+**Verdict (auto-classified by `scripts/q3.py`):**
+
+```json
+{ "abl_block": 8, "abl_head": 0,
+  "norm_ratio": 1.05,
+  "cka_delta": 0.084,
+  "max_effect": 0.0128, "effect_frac": 0.0281,
+  "h1": false, "h2": false, "h3": true }
+```
+
+`outputs/q3_verdict.json` is the canonical artefact; the assemble step prints a one-line winner banner.
 
 ### 4.6 Answer
 
-On the empirical evidence, **neither H1 nor H2 is strongly supported for any measurable head in blocks 10–11**. Instead, the data favours a third mechanistic picture:
+On the empirical evidence across the full last-4-blocks sweep, **neither H1 nor H2 is supported by any measurable head**. Instead, the data favours a third mechanistic picture:
 
-> **H3 — distributed modality signal.** Modality separation in SAM's last two blocks is carried *distributively* across all twelve heads, with high representational redundancy (CKA ≈ 0.75+) and no single-head bottleneck. This is what ablation-resistance would predict: perturbing any one head moves the embedding by less than 1% of the cluster gap.
+> **H3 — distributed modality signal.** Modality separation in SAM's last four blocks is carried *distributively* across heads, with high inter-head representational similarity (CKA ≈ 0.65–0.95) and no single-head bottleneck. The largest single-head perturbation across 48 ablations is 2.8% of the baseline silhouette — perturbing any one head moves the cluster geometry by less than ~3% of the cluster gap. The most asymmetric head identified, B8.H0, technically matches the prompt scenario direction (MRI hurt > X-ray hurt) but at a magnitude too small to localise the mechanism on it.
 
-This is consistent with a broader mechanistic-interpretability trend: late-layer representations in large pretrained transformers tend to be *superposed* across many components rather than localised. For SAM specifically, the implication is that medical-adaptation techniques like LoRA (which reshape every head's Q/K/V matrices) should outperform adapter methods that insert new components at a handful of "critical" heads — which the latter would be unable to identify from causal evidence alone.
+A finer-grained finding: **block 8 carries by far the most causal load** (largest single-head effects in the entire last-4-blocks sweep are at B8.H10 = +0.013 and B8.H11 = −0.013, with opposite sign). This pairing — one head helping separation, an adjacent head hurting it — suggests **within-block specialisation that is *not* aligned to modality** (otherwise both would show modality-asymmetric Δsil patterns). The block is causally important, but its heads do not partition by class.
+
+This dovetails with two broader trends in mechanistic interpretability:
+
+1. **Late-layer representations in large pretrained transformers are superposed** across many components rather than localised in a few "feature heads" (Elhage et al., 2022, on superposition).
+2. **Causally important blocks (Q2: block 8 peaks separation) need not contain causally important *individual* heads** — the mid-late peak in modality information is itself a distributed property.
+
+For SAM specifically, the practical implication is that medical-adaptation techniques like LoRA (which reshape every head's Q/K/V matrices) should outperform adapter methods that insert new components at a handful of "critical" heads — the critical-head set is empirically empty under our threshold rules.
 
 ### 4.7 What we would do with more compute / scope
 
-- **Wider sweep.** Extend the ablation to all 12 blocks, not just the last 2. Early-block ablations may have larger single-head effects because the representation space is smaller and less superposed.
-- **Group ablation.** Zero pairs or triples of heads — if H3 is correct, the minimum set size whose ablation degrades separation should be ≥2 and likely larger.
-- **Activation patching.** Rather than zeroing, *swap* a head's activation from an X-ray forward pass into an MRI forward pass. This tests whether the information a head carries is truly modality-conditional or merely modality-correlated.
-- **Mask-decoder dice.** Pair encoder ablation with the mask decoder to measure actual segmentation dice, mirroring the task prompt exactly. (Requires per-image ground-truth masks, which CHAOS provides but NIH does not.)
+- **Wider sweep.** Extend to blocks 0–7 in addition to the last 4. Early-block ablations may show larger effects because their representation space is smaller and less superposed; v2 already shows that block 8 dominates blocks 9–11, suggesting effect magnitude *grows* as we move earlier.
+- **Group ablation.** Zero pairs or triples of heads — under H3, the minimum head-set size whose ablation degrades separation should be > 1. The B8.H10 / B8.H11 pair (opposite signs) is a natural starting point: jointly ablating both should test whether they form a complementary feature pair.
+- **Activation patching.** Rather than zeroing, *swap* a head's activation from an X-ray forward pass into an MRI forward pass. Tests whether the information a head carries is truly modality-conditional or merely modality-correlated.
+- **Mask-decoder dice.** Pair encoder ablation with the mask decoder to measure actual segmentation dice, mirroring the task prompt exactly. CHAOS ships ground-truth masks; NIH does not, so this is a CHAOS-only experiment.
+- **Loosen H2 thresholds.** B8.H0's CKA-delta = 0.084 is just below our 0.10 threshold. A more sensitive H2 test (e.g. paired permutation test on per-image CKA, or a CCA-based variant) might re-classify it as marginal-H2 rather than firm-H3.
 
 ---
 
@@ -168,7 +196,7 @@ This is consistent with a broader mechanistic-interpretability trend: late-layer
 
 1. **No medical features emerge.** SAM's encoder produces no semantic medical content; what looks like modality discrimination is a side-effect of retained low-to-mid-level filters combined with position biases.
 2. **Mid-late blocks separate best.** Block 8 peaks; final blocks compress. Suggests mask-decoder-readiness trades off against modality specificity — useful for adapter-tap-point selection.
-3. **Modality signal is distributed.** Late-block modality information is superposed across all heads; no single head is a bottleneck. This contradicts the prompt's hypothetical scenario as a literal mechanism but reveals the actual mechanism underlying SAM's OOD behaviour.
+3. **Modality signal is distributed; block 8 carries the most causal load.** Late-block modality information is superposed across heads with no single bottleneck (max single-head |Δsil| = 2.8% of baseline). Block 8's heads (especially H10 / H11, opposite-signed) are the most causally important across the entire last-4-block sweep — but their importance is *block-level*, not modality-aligned, and the prompt's "ablate one head, hurt only MRI" scenario does not literally manifest. The empirically closest match (B8.H0) has the right *direction* but a magnitude (~0.7%) far too small to support H1 or H2.
 4. **Cross-modality cosine rises with depth.** Absolute angular distance between the two modality centroids shrinks from 0.24 (block 0) to 0.13 (block 11) — a 46% reduction — while within-class variance shrinks faster, preserving relative separability. SAM's encoder is *contracting everything toward a common manifold* while keeping classes distinguishable.
 
 ### 5.2 Limitations
@@ -198,7 +226,8 @@ This is consistent with a broader mechanistic-interpretability trend: late-layer
 git clone https://github.com/rwd51/SAM-interp.git repo
 cd repo
 pip install -r requirements.txt
-python run_all.py --sweep-blocks 2     # ~50 min on a Colab T4
+python run_all.py                       # default: 4-block sweep, ~65 min on Colab T4
+# python run_all.py --sweep-blocks 2    # iteration-mode fast variant, ~25 min
 ```
 
 All seeds fixed (`SEED = 0`); data downloads are idempotent and cached. Fig. 1–7 + both CSVs reproduce bit-exactly on a fresh Colab session.
