@@ -78,8 +78,8 @@ You need a CUDA GPU with ≥ 10 GB for the full sweep; CPU works but is slow.
 | `download`   | ~5 min     | 375 MB SAM + ~890 MB CHAOS + NIH stream, cached thereafter |
 | `q1`         | ~3 min     | 40 forwards × 12 blocks, entropy on-the-fly |
 | `q2`         | ~1 min     | CPU-bound sklearn                           |
-| `q3` default | ~50 min    | 48 (block × head) ablations × 40 images     |
-| `q3` `--sweep-blocks 2` | ~25 min | trailing 2 blocks only              |
+| `q3` default (4 blocks) | ~35 min    | 48 (block × head) ablations × 40 images     |
+| `q3` `--sweep-blocks 2` | ~18 min | trailing 2 blocks only (iteration mode)     |
 | `assemble`   | <1 min     |                                             |
 
 ## Design notes

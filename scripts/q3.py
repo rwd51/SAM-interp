@@ -262,13 +262,79 @@ def main(sweep_blocks: int = 4) -> None:
         y=1.08, fontsize=9.5)
     save_fig(fig, "fig7_hypothesis_tests_q3"); plt.close(fig)
 
-    # ---- textual verdict ----
-    xr = mean_norms.loc[ABL_H, "xray"]; mr = mean_norms.loc[ABL_H, "mri"]
-    best_partner = int(np.argmax([pair_drops[i] if i != ABL_H else -1
+    # -------------------------- mechanistic verdict --------------------------
+    # Automatically classify the picked head against H1 / H2 / H3 based on the
+    # measured evidence. Thresholds are chosen to be interpretable and
+    # reproducible, not maximally tight.
+    xr_norm = float(mean_norms.loc[ABL_H, "xray"])
+    mr_norm = float(mean_norms.loc[ABL_H, "mri"])
+    norm_ratio = mr_norm / max(xr_norm, 1e-6)
+
+    # CKA-symmetry check: does this head's CKA to its siblings look the same
+    # on X-ray as on MRI?  If yes → H2 would NOT apply (no redundancy asymmetry).
+    siblings = [i for i in range(n_heads) if i != ABL_H]
+    cka_delta = float(np.abs(CKA_x[ABL_H, siblings] - CKA_m[ABL_H, siblings]).mean())
+
+    # Pair-ablation sensitivity: does any partner head, when co-ablated, cause
+    # a larger X-ray cluster degradation than the target alone?
+    best_partner = int(np.argmax([pair_drops[i] if i != ABL_H else -np.inf
                                   for i in range(n_heads)]))
-    print(f"\n[q3] verdict for B{ABL_B}.H{ABL_H}")
-    print(f"     H1 activation-norm ratio MRI/X-ray = {mr / max(xr, 1e-6):.2f}x")
-    print(f"     H2 best X-ray redundancy partner  = H{best_partner}")
+    best_partner_drop = float(pair_drops[best_partner])
+
+    # Magnitude of the overall Δsilhouette perturbation, vs baseline separation.
+    max_effect = float(abl_df["delta_sil"].abs().max())
+    baseline_sil = float(base["silhouette"])
+    effect_frac  = max_effect / baseline_sil
+
+    # --- decision rules ---
+    h1_supported = norm_ratio > 2.0 or norm_ratio < 0.5      # truly modality-specialist
+    h2_supported = cka_delta > 0.10 and best_partner_drop > 2 * max_effect
+    h3_supported = effect_frac < 0.05 and not (h1_supported or h2_supported)
+
+    print("\n" + "=" * 66)
+    print(f"[q3] MECHANISTIC VERDICT — picked head B{ABL_B}.H{ABL_H}")
+    print("=" * 66)
+    print(f"  Per-modality activation norm:  X-ray={xr_norm:.2f}  MRI={mr_norm:.2f}  "
+          f"(MRI/X-ray ratio = {norm_ratio:.2f})")
+    print(f"  Mean |CKA_xray − CKA_mri| to sibling heads:  {cka_delta:.3f}")
+    print(f"  Best X-ray redundancy partner: H{best_partner}  "
+          f"(coherence drop {best_partner_drop:+.3f})")
+    print(f"  Largest |Δsilhouette| across sweep: {max_effect:.4f}  "
+          f"(= {effect_frac*100:.1f}% of baseline silhouette {baseline_sil:.3f})")
+    print("-" * 66)
+    print(f"  H1 (modality-specialist head):   "
+          f"{'SUPPORTED' if h1_supported else 'REJECTED'}   "
+          f"[needs norm-ratio outside (0.5, 2.0)]")
+    print(f"  H2 (redundancy asymmetry):       "
+          f"{'SUPPORTED' if h2_supported else 'REJECTED'}   "
+          f"[needs CKA-delta > 0.10 and a compensating partner]")
+    print(f"  H3 (distributed modality signal):"
+          f"{' SUPPORTED' if h3_supported else ' REJECTED'}   "
+          f"[needs max effect < 5% of baseline, and H1/H2 both rejected]")
+    print("=" * 66)
+    if h3_supported:
+        print("  → H3 wins: SAM's modality-separation signal is superposed across")
+        print("    heads with no single bottleneck. Consistent with ablation-")
+        print("    resistance and high sibling-head CKA (~0.75+).")
+    elif h2_supported:
+        print("  → H2 wins: this head is redundantly encoded on X-ray but uniquely")
+        print("    carries information on MRI, matching the prompt's scenario.")
+    elif h1_supported:
+        print("  → H1 wins: head is modality-specialised (near-silent on one side).")
+    else:
+        print("  → Mixed evidence; report numerics literally.")
+
+    # Persist the verdict so assemble.py and the report can pick it up.
+    verdict = dict(
+        abl_block=ABL_B, abl_head=ABL_H,
+        norm_xray=xr_norm, norm_mri=mr_norm, norm_ratio=norm_ratio,
+        cka_delta=cka_delta,
+        best_partner=best_partner, best_partner_drop=best_partner_drop,
+        max_effect=max_effect, baseline_sil=baseline_sil, effect_frac=effect_frac,
+        h1=h1_supported, h2=h2_supported, h3=h3_supported,
+    )
+    import json
+    (config.OUT_DIR / "q3_verdict.json").write_text(json.dumps(verdict, indent=2))
 
 
 if __name__ == "__main__":

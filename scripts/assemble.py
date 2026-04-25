@@ -42,6 +42,23 @@ def main() -> None:
         y=0.995, fontsize=11)
     save_fig(fig, "fig_teaser_report"); plt.close(fig)
 
+    # ---- Q3 verdict banner ----
+    import json
+    vpath = config.OUT_DIR / "q3_verdict.json"
+    if vpath.exists():
+        v = json.loads(vpath.read_text())
+        winner = "H3 (distributed)" if v["h3"] else \
+                 "H2 (redundancy asymmetry)" if v["h2"] else \
+                 "H1 (modality-specialist)" if v["h1"] else "Mixed evidence"
+        print("\n" + "=" * 66)
+        print(f"Q3 verdict  →  {winner}")
+        print(f"Picked head: B{v['abl_block']}.H{v['abl_head']}   "
+              f"‖Δsil‖max = {v['max_effect']:.4f}  "
+              f"({v['effect_frac']*100:.1f}% of baseline {v['baseline_sil']:.3f})")
+        print(f"Norm ratio MRI/X-ray = {v['norm_ratio']:.2f}   "
+              f"|ΔCKA| to siblings = {v['cka_delta']:.3f}")
+        print("=" * 66)
+
     # ---- LaTeX tables ----
     met = pd.read_csv(config.OUT_DIR / "q2_metrics.csv")
     abl = pd.read_csv(config.OUT_DIR / "q3_ablation_sweep.csv")

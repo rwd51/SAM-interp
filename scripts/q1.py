@@ -118,20 +118,39 @@ def main() -> None:
         y=1.08, fontsize=9.5)
     save_fig(fig, "fig2_layerwise_q1"); plt.close(fig)
 
-    # ================== Fig 3 — attention heat-maps ==================
-    def _attn_map(img, block_idx, q_xy=(32, 32), head=None):
+    # ================== Fig 3 — per-head attention heat-maps ==================
+    # Instead of mean-over-heads (which is dominated by SAM's learned
+    # rel-pos prior), pick the MOST PEAKED (lowest-entropy) head per global
+    # block — this is the head most likely to encode content-specific attention
+    # rather than a positional bias.  Deterministic, reproducible.
+    def _pick_peaked_heads(imgs_for_entropy):
+        """Per-global-block: average per-head entropy over a few images;
+        return {block_idx: head_idx_with_lowest_entropy}."""
+        set_store(entropy=True)
+        per_block = {b: [] for b in global_attn}
+        for img in imgs_for_entropy:
+            out = encode(img, block_ids=global_attn)
+            for b in global_attn:
+                per_block[b].append(out["attn_entropy"][b].numpy())
+            del out; clear_cuda()
+        set_store(entropy=False)
+        return {b: int(np.argmin(np.stack(per_block[b]).mean(0)))
+                for b in global_attn}
+
+    sample_x = [img for img, lab in images if lab == "xray"][0]
+    sample_m = [img for img, lab in images if lab == "mri" ][0]
+    picked_heads = _pick_peaked_heads([sample_x, sample_m])
+    print(f"[q1] per-block most-peaked heads: {picked_heads}")
+
+    def _attn_map(img, block_idx, head_idx, q_xy=(32, 32)):
         set_store(attn=True)
         out = encode(img, block_ids=[block_idx])
         set_store(attn=False)
-        a = out["attn"][block_idx][0]
-        a = a.mean(0) if head is None else a[head]
+        a = out["attn"][block_idx][0][head_idx]                # (N, N) — one head
         qi = q_xy[0] * meta["patch_hw"] + q_xy[1]
         m  = a[qi].reshape(meta["patch_hw"], meta["patch_hw"]).numpy()
         del out; clear_cuda()
         return m
-
-    sample_x = [img for img, lab in images if lab == "xray"][0]
-    sample_m = [img for img, lab in images if lab == "mri" ][0]
 
     fig, axes = plt.subplots(2, len(global_attn) + 1, figsize=(6.75, 3.0),
                              gridspec_kw=dict(wspace=0.08, hspace=0.12))
@@ -142,14 +161,16 @@ def main() -> None:
         axes[row, 0].imshow(img, cmap="gray"); axes[row, 0].axis("off")
         axes[row, 0].set_title(name, color=c, fontweight="bold", loc="left", fontsize=10)
         for k, b in enumerate(global_attn):
-            m = _attn_map(img, b)
+            h_pick = picked_heads[b]
+            m = _attn_map(img, b, head_idx=h_pick)
             axes[row, k + 1].imshow(m, cmap="inferno")
             axes[row, k + 1].axis("off")
             if row == 0:
-                axes[row, k + 1].set_title(f"block {b}", fontsize=9)
+                axes[row, k + 1].set_title(f"blk {b} · H{h_pick}", fontsize=9)
 
     fig.suptitle(
-        "Fig. 3 — Mean attention of the centre query patch at the four global-attention blocks.",
+        "Fig. 3 — Attention of the centre query at the four global-attn blocks, "
+        "using the lowest-entropy (most peaked) head per block.",
         y=1.05, fontsize=9.5)
     save_fig(fig, "fig3_attention_maps_q1"); plt.close(fig)
 
