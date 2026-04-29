@@ -11,3 +11,4 @@ colab_commands.py
 
 # downloaded Colab run outputs (2.9 GB — figures + csvs are the real deliverable)
 results/
+FINDINGS.md
