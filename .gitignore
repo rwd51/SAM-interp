@@ -12,3 +12,21 @@ colab_commands.py
 # downloaded Colab run outputs (2.9 GB — figures + csvs are the real deliverable)
 results/
 FINDINGS.md
+
+# local-only LaTeX report draft + build artefacts (entire folder, including
+# the compiled PDF, intermediate .aux/.log/.synctex.gz, and figure PDFs)
+report/
+
+# global safety net: any compiled PDF anywhere in the repo
+# (covers laptop/Overleaf-downloaded PDFs accidentally dragged into src/)
+*.pdf
+!Test-VLM-mech-interp.pdf
+
+# LaTeX intermediate files in case anyone compiles outside report/
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk

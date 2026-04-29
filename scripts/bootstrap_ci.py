@@ -143,8 +143,9 @@ def main() -> None:
     print(cka_df.to_string(index=False, float_format=lambda x: f"{x:.3f}"))
 
     # ---- Fig 4b: Q2 metrics with CIs ----
-    fig, axes = plt.subplots(1, 2, figsize=(6.75, 2.4),
-                             gridspec_kw=dict(wspace=0.35))
+    # Sized for half-width (subfigure) placement at ~0.49 \textwidth.
+    fig, axes = plt.subplots(1, 2, figsize=(8.5, 4.0),
+                             gridspec_kw=dict(wspace=0.40))
     for ax, col_mean, col_lo, col_hi, ylabel, color in [
         (axes[0], "sil_mean",  "sil_lo",  "sil_hi",  "Silhouette",   PALETTE["warn"]),
         (axes[1], "fish_mean", "fish_lo", "fish_hi", "Fisher ratio", PALETTE["warn"]),
@@ -153,41 +154,42 @@ def main() -> None:
         m = q2_df[col_mean].values
         lo = q2_df[col_lo].values; hi = q2_df[col_hi].values
         yerr = np.array([m - lo, hi - m])
-        ax.errorbar(x, m, yerr=yerr, fmt="o-", color=color, capsize=3,
-                    markersize=5, linewidth=1.2,
-                    ecolor=PALETTE["neutral"], elinewidth=0.9)
-        ax.set_xticks(x); ax.set_xticklabels([f"B{b}" for b in q2_df["block"]])
-        ax.set_ylabel(ylabel); ax.set_xlabel("Block")
+        ax.errorbar(x, m, yerr=yerr, fmt="o-", color=color, capsize=4,
+                    markersize=7, linewidth=1.8,
+                    ecolor=PALETTE["neutral"], elinewidth=1.1)
+        ax.set_xticks(x)
+        ax.set_xticklabels([f"B{b}" for b in q2_df["block"]], fontsize=11)
+        ax.set_ylabel(ylabel, fontsize=12); ax.set_xlabel("Block", fontsize=12)
         ax.grid(axis="y", alpha=0.35)
     fig.suptitle(
-        "Fig. 4b — Q2 separation metrics with 95% bootstrap CIs (n=1000 resamples). "
-        "Block 8's silhouette advantage is consistent with a true separation peak.",
-        y=1.06, fontsize=9.5)
+        "Q2 separation metrics with 95% bootstrap CIs (n=1000 resamples).",
+        y=1.00, fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
     save_fig(fig, "fig4b_q2_bootstrap"); plt.close(fig)
 
     # ---- Fig 8b: cross-CKA diagonal with CIs ----
-    fig, ax = plt.subplots(figsize=(6.75, 2.4))
+    fig, ax = plt.subplots(figsize=(8.5, 4.0))
     x = np.arange(len(cka_df))
     m  = cka_df["cka_mean"].values
     lo = cka_df["cka_lo"].values; hi = cka_df["cka_hi"].values
     yerr = np.array([m - lo, hi - m])
-    ax.errorbar(x, m, yerr=yerr, fmt="o-", color=PALETTE["accent"], capsize=3,
-                markersize=5, linewidth=1.4,
-                ecolor=PALETTE["neutral"], elinewidth=0.9,
+    ax.errorbar(x, m, yerr=yerr, fmt="o-", color=PALETTE["accent"], capsize=4,
+                markersize=7, linewidth=2.0,
+                ecolor=PALETTE["neutral"], elinewidth=1.1,
                 label="cross-modality CKA, 95% CI")
-    # mark B8 peak
     peak_b = int(cka_df.iloc[np.argmax(m)]["block"])
-    ax.axvline(np.argmax(m), color=PALETTE["warn"], ls="--", lw=0.9,
+    ax.axvline(np.argmax(m), color=PALETTE["warn"], ls="--", lw=1.2,
                label=f"peak: block {peak_b}")
-    ax.set_xticks(x); ax.set_xticklabels(cka_df["block"])
-    ax.set_xlabel("Encoder block")
-    ax.set_ylabel(r"CKA(X-ray$_b$, MRI$_b$)")
+    ax.set_xticks(x)
+    ax.set_xticklabels(cka_df["block"], fontsize=11)
+    ax.set_xlabel("Encoder block", fontsize=12)
+    ax.set_ylabel(r"CKA(X-ray$_b$, MRI$_b$)", fontsize=12)
     ax.grid(axis="y", alpha=0.35)
-    ax.legend(loc="best", fontsize=8)
+    ax.legend(loc="lower right", fontsize=11)
     fig.suptitle(
-        "Fig. 8b — Within-block cross-modality CKA with 95% bootstrap CIs. "
-        "Peak at block 8 is statistically distinguishable from blocks 0–4.",
-        y=1.05, fontsize=9.5)
+        "Within-block cross-modality CKA, 95% bootstrap CIs.",
+        y=1.00, fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
     save_fig(fig, "fig8b_cka_bootstrap"); plt.close(fig)
 
     # ---- save tidy CSV ----

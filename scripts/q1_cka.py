@@ -75,48 +75,47 @@ def main() -> None:
         print(f"           block {b:2d}  CKA(X-ray, MRI) = {v:.3f}")
 
     # =========================== Fig 8 ===========================
-    fig = plt.figure(figsize=(7.0, 4.6))
-    gs  = GridSpec(2, 3, height_ratios=[3.2, 1.4],
-                   hspace=0.45, wspace=0.30)
+    # 2-row layout: 3 heatmaps on top, diagonal trace below.
+    fig = plt.figure(figsize=(13.0, 7.0))
+    gs  = GridSpec(2, 3, height_ratios=[3.0, 1.6],
+                   hspace=0.55, wspace=0.32)
 
     panels = [
-        (cka_xx, "(a) X-ray self-CKA",          "viridis"),
-        (cka_mm, "(b) MRI self-CKA",            "viridis"),
-        (cka_xm, "(c) Cross-modality CKA",      "magma"),
+        (cka_xx, "(a) X-ray self-CKA",     "viridis"),
+        (cka_mm, "(b) MRI self-CKA",       "viridis"),
+        (cka_xm, "(c) Cross-modality CKA", "magma"),
     ]
     ims = []
     for k, (M, title, cmap) in enumerate(panels):
         ax = fig.add_subplot(gs[0, k])
         im = ax.imshow(M, cmap=cmap, vmin=0, vmax=1, aspect="equal")
-        ax.set_title(title, loc="left", fontsize=10)
+        ax.set_title(title, loc="left", fontsize=12)
         ax.set_xticks(range(n_blocks)); ax.set_yticks(range(n_blocks))
-        ax.set_xticklabels(blocks, fontsize=7); ax.set_yticklabels(blocks, fontsize=7)
-        ax.set_xlabel("block $j$", fontsize=9)
-        if k == 0: ax.set_ylabel("block $i$", fontsize=9)
+        ax.set_xticklabels(blocks, fontsize=10)
+        ax.set_yticklabels(blocks, fontsize=10)
+        ax.set_xlabel("block $j$", fontsize=12)
+        if k == 0: ax.set_ylabel("block $i$", fontsize=12)
         ims.append(im)
-    cb = fig.colorbar(ims[-1], ax=fig.axes, shrink=0.62, pad=0.02, fraction=0.025)
-    cb.set_label("linear CKA", fontsize=9)
+    cb = fig.colorbar(ims[-1], ax=fig.axes[:3], shrink=0.85, pad=0.02,
+                      fraction=0.030)
+    cb.set_label("linear CKA", fontsize=12)
+    cb.ax.tick_params(labelsize=10)
 
-    # bottom row — within-block cross-modality trace
     ax = fig.add_subplot(gs[1, :])
-    ax.plot(blocks, diag_xm, "-o", color=PALETTE["accent"], markersize=4,
-            label="CKA(X-ray$_b$, MRI$_b$)")
-    ax.set_xlabel("Encoder block $b$")
-    ax.set_ylabel("CKA")
+    ax.plot(blocks, diag_xm, "-o", color=PALETTE["accent"], markersize=7,
+            linewidth=2.0, label=r"CKA(X-ray$_b$, MRI$_b$)")
+    ax.set_xlabel("Encoder block $b$", fontsize=12)
+    ax.set_ylabel("CKA", fontsize=12)
     ax.set_xticks(blocks)
     ax.set_ylim(max(0, diag_xm.min() - 0.05), min(1.0, diag_xm.max() + 0.05))
-    ax.grid(True, alpha=0.3)
+    ax.grid(True, alpha=0.35)
     ax.set_title("(d) Within-block cross-modality similarity (diagonal of panel c)",
-                 loc="left", fontsize=10)
-    ax.legend(loc="best", fontsize=8)
+                 loc="left", fontsize=12)
+    ax.legend(loc="best", fontsize=11)
 
     fig.suptitle(
-        "Fig. 8 — Layer-wise representational similarity (linear CKA). "
-        "Panels (a), (b) show how each modality's representation evolves block-to-block; "
-        "panel (c) shows X-ray vs MRI alignment at every (block$_i$, block$_j$) pair; "
-        "panel (d) is the diagonal of (c).",
-        y=1.04, fontsize=9.5,
-    )
+        "Layer-wise representational similarity (linear CKA).",
+        y=1.00, fontsize=13)
     save_fig(fig, "fig8_layerwise_cka")
     plt.close(fig)
 

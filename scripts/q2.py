@@ -47,27 +47,28 @@ def main() -> None:
     met_df.to_csv(config.OUT_DIR / "q2_metrics.csv", index=False)
 
     # ================== Fig 4 — metrics bar ==================
-    fig, axes = plt.subplots(1, 4, figsize=(6.75, 1.9),
-                             gridspec_kw=dict(wspace=0.45))
+    fig, axes = plt.subplots(1, 4, figsize=(11.5, 3.2),
+                             gridspec_kw=dict(wspace=0.50))
     cols   = ["linear_probe", "knn5", "silhouette", "fisher"]
-    titles = ["Linear probe 5-fold", "5-NN (CV acc)", "Silhouette", "Fisher ratio"]
+    titles = ["Linear probe (5-fold)", "5-NN (CV acc)", "Silhouette", "Fisher ratio"]
     colors = [PALETTE["accent"], PALETTE["accent"], PALETTE["warn"], PALETTE["warn"]]
 
     for ax, col, t, c in zip(axes, cols, titles, colors):
         vals = met_df[col].values
-        bars = ax.bar(range(len(last4)), vals, color=c, alpha=0.85, width=0.65,
-                      edgecolor="black", linewidth=0.6)
+        bars = ax.bar(range(len(last4)), vals, color=c, alpha=0.88, width=0.62,
+                      edgecolor="black", linewidth=0.7)
         ax.set_xticks(range(len(last4)))
-        ax.set_xticklabels([f"B{b}" for b in last4])
-        ax.set_title(t, loc="left", fontsize=10)
+        ax.set_xticklabels([f"B{b}" for b in last4], fontsize=11)
+        ax.set_title(t, loc="left", fontsize=12)
         for bar, v in zip(bars, vals):
             ax.text(bar.get_x() + bar.get_width() / 2, v, f"{v:.2f}",
-                    ha="center", va="bottom", fontsize=7.5)
+                    ha="center", va="bottom", fontsize=10)
         ax.margins(y=0.22)
         ax.set_axisbelow(True); ax.grid(axis="y", alpha=0.35)
     fig.suptitle(
-        "Fig. 4 — Per-layer modality separation across the last four SAM-ViT-B blocks.",
-        y=1.1, fontsize=9.5)
+        "Per-layer modality separation across the last four SAM ViT-B blocks.",
+        y=1.02, fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
     save_fig(fig, "fig4_separation_metrics_q2"); plt.close(fig)
 
     # ================== Fig 5 — PCA + UMAP ==================
@@ -77,40 +78,40 @@ def main() -> None:
     except Exception:
         has_umap = False
 
-    fig, axes = plt.subplots(2, 4, figsize=(6.75, 3.4),
-                             gridspec_kw=dict(wspace=0.25, hspace=0.45))
+    fig, axes = plt.subplots(2, 4, figsize=(11.5, 5.6),
+                             gridspec_kw=dict(wspace=0.20, hspace=0.45))
     for col, b in enumerate(last4):
         X = StandardScaler().fit_transform(feats[b])
         Xp = PCA(n_components=2, random_state=config.SEED).fit_transform(X)
 
         ax = axes[0, col]
-        ax.scatter(Xp[y == 0, 0], Xp[y == 0, 1], c=PALETTE["xray"], s=22,
-                   edgecolors="white", linewidths=0.5, label="X-ray")
-        ax.scatter(Xp[y == 1, 0], Xp[y == 1, 1], c=PALETTE["mri"], s=22, marker="^",
-                   edgecolors="white", linewidths=0.5, label="MRI")
-        ax.set_title(f"Block {b}  (PCA)", fontsize=9)
+        ax.scatter(Xp[y == 0, 0], Xp[y == 0, 1], c=PALETTE["xray"], s=42,
+                   edgecolors="white", linewidths=0.6, label="X-ray")
+        ax.scatter(Xp[y == 1, 0], Xp[y == 1, 1], c=PALETTE["mri"], s=42,
+                   marker="^", edgecolors="white", linewidths=0.6, label="MRI")
+        ax.set_title(f"Block {b}  (PCA)", fontsize=12)
         ax.set_xticks([]); ax.set_yticks([])
         if col == 0:
-            ax.set_ylabel("PCA-2"); ax.legend(fontsize=8)
+            ax.set_ylabel("PCA-2", fontsize=12); ax.legend(fontsize=11, loc="best")
 
         ax = axes[1, col]
         if has_umap and len(X) >= 6:
             Xu = umap.UMAP(n_neighbors=min(8, len(X) - 1), min_dist=0.3,
                            random_state=config.SEED).fit_transform(X)
-            ax.scatter(Xu[y == 0, 0], Xu[y == 0, 1], c=PALETTE["xray"], s=22,
-                       edgecolors="white", linewidths=0.5)
-            ax.scatter(Xu[y == 1, 0], Xu[y == 1, 1], c=PALETTE["mri"], s=22, marker="^",
-                       edgecolors="white", linewidths=0.5)
-            ax.set_title(f"Block {b}  (UMAP)", fontsize=9)
+            ax.scatter(Xu[y == 0, 0], Xu[y == 0, 1], c=PALETTE["xray"], s=42,
+                       edgecolors="white", linewidths=0.6)
+            ax.scatter(Xu[y == 1, 0], Xu[y == 1, 1], c=PALETTE["mri"], s=42,
+                       marker="^", edgecolors="white", linewidths=0.6)
+            ax.set_title(f"Block {b}  (UMAP)", fontsize=12)
         else:
             ax.text(0.5, 0.5, "UMAP unavailable", ha="center", va="center")
         ax.set_xticks([]); ax.set_yticks([])
         if col == 0:
-            ax.set_ylabel("UMAP-2")
+            ax.set_ylabel("UMAP-2", fontsize=12)
     fig.suptitle(
-        "Fig. 5 — Low-dim projection of mean-pooled patch embeddings. "
-        "Separation grows with depth.",
-        y=1.04, fontsize=9.5)
+        "Low-dimensional projection of mean-pooled patch embeddings.",
+        y=1.01, fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
     save_fig(fig, "fig5_pca_umap_q2"); plt.close(fig)
 
     # ---- choose clearest layer ----

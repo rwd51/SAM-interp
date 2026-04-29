@@ -69,8 +69,10 @@ def main() -> None:
     within_x = np.array(within_x); within_m = np.array(within_m); cross = np.array(cross)
 
     # ================== Fig 2 ==================
-    fig, axes = plt.subplots(1, 3, figsize=(6.75, 2.2),
-                             gridspec_kw=dict(wspace=0.35))
+    # 3 panels side-by-side; sized so each panel reads cleanly when the figure
+    # is rendered at \textwidth (~6.5 in) inside the LaTeX report.
+    fig, axes = plt.subplots(1, 3, figsize=(11.0, 3.6),
+                             gridspec_kw=dict(wspace=0.40))
 
     # (a) attention dispersion — only global-attn blocks (key count = 4096 in
     # all four, so entropies are on the same scale).  Windowed-block entropies
@@ -113,9 +115,9 @@ def main() -> None:
     ax.set_xticks(block_ids); ax.legend()
 
     fig.suptitle(
-        "Fig. 2 — Layer-wise behaviour of SAM ViT-B on OOD medical images. "
-        "Modality separation emerges in the last third of the encoder.",
-        y=1.08, fontsize=9.5)
+        "Layer-wise behaviour of SAM ViT-B on OOD medical images.",
+        y=1.02, fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
     save_fig(fig, "fig2_layerwise_q1"); plt.close(fig)
 
     # ================== Fig 3 — per-head attention heat-maps ==================
@@ -152,26 +154,29 @@ def main() -> None:
         del out; clear_cuda()
         return m
 
-    fig, axes = plt.subplots(2, len(global_attn) + 1, figsize=(6.75, 3.0),
-                             gridspec_kw=dict(wspace=0.08, hspace=0.12))
+    fig, axes = plt.subplots(2, len(global_attn) + 1, figsize=(11.0, 4.6),
+                             gridspec_kw=dict(wspace=0.08, hspace=0.18))
     for row, (img, name, c) in enumerate([
         (sample_x, "X-ray", PALETTE["xray"]),
         (sample_m, "MRI",   PALETTE["mri"]),
     ]):
         axes[row, 0].imshow(img, cmap="gray"); axes[row, 0].axis("off")
-        axes[row, 0].set_title(name, color=c, fontweight="bold", loc="left", fontsize=10)
+        axes[row, 0].set_title(name, color=c, fontweight="bold",
+                               loc="left", fontsize=13)
         for k, b in enumerate(global_attn):
             h_pick = picked_heads[b]
             m = _attn_map(img, b, head_idx=h_pick)
             axes[row, k + 1].imshow(m, cmap="inferno")
             axes[row, k + 1].axis("off")
             if row == 0:
-                axes[row, k + 1].set_title(f"blk {b} · H{h_pick}", fontsize=9)
+                axes[row, k + 1].set_title(f"blk {b}, head {h_pick}",
+                                           fontsize=12)
 
     fig.suptitle(
-        "Fig. 3 — Attention of the centre query at the four global-attn blocks, "
-        "using the lowest-entropy (most peaked) head per block.",
-        y=1.05, fontsize=9.5)
+        "Centre-query attention at the four global-attention blocks "
+        "(lowest-entropy head per block).",
+        y=1.02, fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
     save_fig(fig, "fig3_attention_maps_q1"); plt.close(fig)
 
     # ---- dump features for Q2 ----

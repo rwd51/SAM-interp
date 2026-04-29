@@ -145,16 +145,19 @@ def main(sweep_blocks: int = 4) -> None:
 
     # ================== Fig 6 ==================
     heat = abl_df.pivot(index="block", columns="head", values="delta_sil").values
-    fig, ax = plt.subplots(figsize=(6.75, 2.0))
+    fig, ax = plt.subplots(figsize=(11.0, 3.6))
     im = ax.imshow(heat, aspect="auto", cmap="RdBu_r",
                    vmin=-np.abs(heat).max(), vmax=np.abs(heat).max())
     ax.set_yticks(range(len(sweep_blocks)))
-    ax.set_yticklabels([f"block {b}" for b in sweep_blocks])
-    ax.set_xticks(range(n_heads)); ax.set_xlabel("Head index")
-    ax.set_title(r"Fig. 6 — Causal head-importance ($\Delta$ silhouette when zeroed).",
-                 loc="left", fontsize=9.5)
-    cb = fig.colorbar(im, ax=ax, shrink=0.8, pad=0.02)
-    cb.set_label(r"$\Delta$ silhouette", fontsize=9)
+    ax.set_yticklabels([f"block {b}" for b in sweep_blocks], fontsize=12)
+    ax.set_xticks(range(n_heads))
+    ax.set_xticklabels(range(n_heads), fontsize=11)
+    ax.set_xlabel("Head index", fontsize=12)
+    ax.set_title(r"Causal head-importance: $\Delta$ silhouette when each head is zeroed.",
+                 loc="left", fontsize=12, pad=10)
+    cb = fig.colorbar(im, ax=ax, shrink=0.85, pad=0.02)
+    cb.set_label(r"$\Delta$ silhouette", fontsize=11)
+    cb.ax.tick_params(labelsize=10)
 
     # Asymmetric head = biggest MRI silhouette drop + smallest X-ray silhouette
     # drop. Silhouette is sensitive even when CV accuracy saturates at 1.0.
@@ -165,11 +168,13 @@ def main(sweep_blocks: int = 4) -> None:
     ABL_B = int(top["block"])
     ABL_H = int(top["head"])
     ax.scatter([ABL_H], [sweep_blocks.index(ABL_B)],
-               s=80, marker="o", facecolors="none",
-               edgecolors="black", linewidths=1.2)
-    ax.annotate(f"asym. head\n(B{ABL_B}, H{ABL_H})",
+               s=120, marker="o", facecolors="none",
+               edgecolors="black", linewidths=1.5)
+    ax.annotate(f"asym. head (B{ABL_B}, H{ABL_H})",
                 (ABL_H, sweep_blocks.index(ABL_B)),
-                textcoords="offset points", xytext=(8, 8), fontsize=8)
+                textcoords="offset points", xytext=(10, 10), fontsize=11,
+                bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="black", lw=0.6))
+    fig.tight_layout()
     save_fig(fig, "fig6_head_importance_q3"); plt.close(fig)
     print(f"[q3] asymmetric head: B{ABL_B}.H{ABL_H}")
 
@@ -218,48 +223,55 @@ def main(sweep_blocks: int = 4) -> None:
         pair_drops.append(inner.mean() - cross.mean())
 
     # ================== Fig 7 ==================
-    fig, axes = plt.subplots(1, 3, figsize=(6.75, 2.4),
-                             gridspec_kw=dict(width_ratios=[1, 1, 1.15], wspace=0.45))
-    # (a) H1
-    ax = axes[0]
+    # 3 panels with extra wspace so per-subplot titles don't collide.
+    fig, axes = plt.subplots(1, 3, figsize=(13.0, 4.0),
+                             gridspec_kw=dict(width_ratios=[1, 1, 1.15],
+                                              wspace=0.40))
     mean_norms = pd.DataFrame({
         "head":  np.tile(np.arange(n_heads), len(labels)),
         "label": np.repeat(labels, n_heads),
         "n":     norms.reshape(-1),
     }).groupby(["head", "label"])["n"].mean().unstack()
     x_ = np.arange(n_heads)
-    ax.bar(x_ - 0.2, mean_norms["xray"], 0.4, color=PALETTE["xray"], label="X-ray",
-           edgecolor="black", linewidth=0.5)
-    ax.bar(x_ + 0.2, mean_norms["mri"],  0.4, color=PALETTE["mri"],  label="MRI",
-           edgecolor="black", linewidth=0.5)
+
+    # (a) H1
+    ax = axes[0]
+    ax.bar(x_ - 0.2, mean_norms["xray"], 0.4, color=PALETTE["xray"],
+           label="X-ray", edgecolor="black", linewidth=0.6)
+    ax.bar(x_ + 0.2, mean_norms["mri"],  0.4, color=PALETTE["mri"],
+           label="MRI",   edgecolor="black", linewidth=0.6)
     ax.axvspan(ABL_H - 0.5, ABL_H + 0.5, color="red", alpha=0.12)
-    ax.set_xlabel("Head"); ax.set_ylabel(r"$\|$ output $\|_2$")
-    ax.set_title(f"(a) H1: per-head norm (B{ABL_B})", loc="left", fontsize=9)
-    ax.set_xticks(x_); ax.legend(fontsize=8)
+    ax.set_xlabel("Head index", fontsize=12)
+    ax.set_ylabel(r"$\|\,\mathrm{output}\,\|_2$", fontsize=12)
+    ax.set_title(f"(a) H1: per-head activation norm (B{ABL_B})",
+                 loc="left", fontsize=12)
+    ax.set_xticks(x_); ax.legend(fontsize=11, loc="upper right")
 
     # (b) H2: CKA to target head
     ax = axes[1]
-    ax.bar(x_ - 0.2, CKA_x[ABL_H], 0.4, color=PALETTE["xray"], label="X-ray",
-           edgecolor="black", linewidth=0.5)
-    ax.bar(x_ + 0.2, CKA_m[ABL_H], 0.4, color=PALETTE["mri"],  label="MRI",
-           edgecolor="black", linewidth=0.5)
-    ax.set_xlabel("Other head"); ax.set_ylabel(f"CKA w/ head {ABL_H}")
-    ax.set_title("(b) H2: representational overlap", loc="left", fontsize=9)
-    ax.set_xticks(x_); ax.legend(fontsize=8)
+    ax.bar(x_ - 0.2, CKA_x[ABL_H], 0.4, color=PALETTE["xray"],
+           label="X-ray", edgecolor="black", linewidth=0.6)
+    ax.bar(x_ + 0.2, CKA_m[ABL_H], 0.4, color=PALETTE["mri"],
+           label="MRI",   edgecolor="black", linewidth=0.6)
+    ax.set_xlabel("Other head index", fontsize=12)
+    ax.set_ylabel(f"CKA with head {ABL_H}", fontsize=12)
+    ax.set_title("(b) H2: representational overlap", loc="left", fontsize=12)
+    ax.set_xticks(x_); ax.legend(fontsize=11, loc="lower right")
 
     # (c) pair-ablation probe
     ax = axes[2]
     ax.bar(x_, pair_drops, 0.7, color=PALETTE["neutral"],
-           edgecolor="black", linewidth=0.5)
+           edgecolor="black", linewidth=0.6)
     ax.axvspan(ABL_H - 0.5, ABL_H + 0.5, color="red", alpha=0.12)
-    ax.set_xlabel("Co-ablated partner head")
-    ax.set_ylabel("X-ray cluster coherence")
-    ax.set_title("(c) H2: pair-ablation probe", loc="left", fontsize=9)
+    ax.set_xlabel("Co-ablated partner head", fontsize=12)
+    ax.set_ylabel("X-ray cluster coherence", fontsize=12)
+    ax.set_title("(c) H2: pair-ablation probe", loc="left", fontsize=12)
     ax.set_xticks(x_)
 
     fig.suptitle(
-        f"Fig. 7 — Hypothesis tests for asymmetric head (B{ABL_B}, H{ABL_H}).",
-        y=1.08, fontsize=9.5)
+        f"Hypothesis tests for asymmetric head (B{ABL_B}, H{ABL_H}).",
+        y=1.02, fontsize=12)
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
     save_fig(fig, "fig7_hypothesis_tests_q3"); plt.close(fig)
 
     # -------------------------- mechanistic verdict --------------------------
