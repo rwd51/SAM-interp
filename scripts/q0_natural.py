@@ -82,16 +82,20 @@ def main() -> None:
     xi = np.where(labels == "xray")[0]
     mi = np.where(labels == "mri" )[0]
 
-    # ---- per-block summary stats ----
+    # CKA needs equal-size sample sets on both sides (it compares N×N Gram
+    # matrices). Natural set has 10; subsample 10 X-rays and 10 MRIs.
+    n_nat = len(images)
+    rng = np.random.default_rng(config.SEED)
+    xi_sub = rng.choice(xi, size=n_nat, replace=False)
+    mi_sub = rng.choice(mi, size=n_nat, replace=False)
+
     rows = []
     for b in blocks:
         rows.append(dict(
             block=b,
-            norm_nat = float(np.mean(norm_nat[b])),
-            norm_xray= float(np.linalg.norm(feats_med[b][xi], axis=1).mean() / 64),  # rough
-            norm_mri = float(np.linalg.norm(feats_med[b][mi], axis=1).mean() / 64),
-            cka_nat_xray = linear_cka(pooled_nat[b], feats_med[b][xi]),
-            cka_nat_mri  = linear_cka(pooled_nat[b], feats_med[b][mi]),
+            norm_nat     = float(np.mean(norm_nat[b])),
+            cka_nat_xray = linear_cka(pooled_nat[b], feats_med[b][xi_sub]),
+            cka_nat_mri  = linear_cka(pooled_nat[b], feats_med[b][mi_sub]),
         ))
     summary = pd.DataFrame(rows)
     print(summary.to_string(index=False, float_format=lambda x: f"{x:.3f}"))
@@ -115,17 +119,14 @@ def main() -> None:
     ax.set_title("(a) Natural-image attention entropy", loc="left")
     ax.set_xticks(global_attn); ax.legend()
 
-    # (b) token-norm trajectory: 3 traces
+    # (b) natural-image token-norm trajectory (medical traces are in Fig 2c)
     ax = axes[1]
-    for lab, c, src in [
-        ("Natural", PALETTE["accent"], summary["norm_nat"].values),
-        ("X-ray",   PALETTE["xray"],   summary["norm_xray"].values),
-        ("MRI",     PALETTE["mri"],    summary["norm_mri"].values),
-    ]:
-        ax.plot(blocks, src, "-o", color=c, markersize=5, linewidth=1.8, label=lab)
+    ax.plot(blocks, summary["norm_nat"].values, "-o",
+            color=PALETTE["accent"], markersize=5, linewidth=1.8,
+            label="Natural")
     ax.set_xlabel("Encoder block")
-    ax.set_ylabel(r"mean $\|\mathbf{z}\|_2$")
-    ax.set_title("(b) Token-norm growth (rescaled)", loc="left")
+    ax.set_ylabel(r"mean per-token $\|\mathbf{z}\|_2$")
+    ax.set_title("(b) Natural-image token-norm growth", loc="left")
     ax.set_xticks(blocks); ax.legend()
 
     # (c) cross-CKA: how geometrically similar is "natural" to each medical modality?
