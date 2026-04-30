@@ -8,6 +8,7 @@ out/
 
 # local-only: contains a GitHub PAT, never commit
 colab_commands.py
+kaggle_commands.py
 
 # downloaded Colab run outputs (2.9 GB — figures + csvs are the real deliverable)
 results/
