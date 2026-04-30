@@ -45,7 +45,10 @@ CHAOS_URL  = "https://zenodo.org/records/3431873/files/CHAOS_Train_Sets.zip?down
 CHAOS_ZIP  = DATA_DIR / "CHAOS_Train_Sets.zip"
 CHAOS_ROOT = DATA_DIR / "CHAOS_Train_Sets"
 
-XRAY_DIR = DATA_DIR / "xray"
-MRI_DIR  = DATA_DIR / "mri"
-XRAY_DIR.mkdir(exist_ok=True)
-MRI_DIR .mkdir(exist_ok=True)
+XRAY_DIR    = DATA_DIR / "xray"
+MRI_DIR     = DATA_DIR / "mri"
+NATURAL_DIR = DATA_DIR / "natural"          # ImageNet-style baseline for Q1
+XRAY_DIR   .mkdir(exist_ok=True)
+MRI_DIR    .mkdir(exist_ok=True)
+NATURAL_DIR.mkdir(exist_ok=True)
+N_NATURAL  = 10

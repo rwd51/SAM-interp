@@ -19,7 +19,7 @@ from PIL import Image
 
 from src.config import (
     CHAOS_ROOT, CHAOS_URL, CHAOS_ZIP, DATA_DIR, MRI_DIR,
-    N_MRI, N_XRAY, XRAY_DIR,
+    N_MRI, N_NATURAL, N_XRAY, NATURAL_DIR, XRAY_DIR,
 )
 
 
@@ -139,6 +139,56 @@ def download_mri(n: int = N_MRI) -> List[Path]:
 
     print(f"[data] saved {len(paths)} CHAOS T2-SPIR abdominal MRI slices -> {MRI_DIR}")
     return paths
+
+
+# -------------------------- natural-image baseline (Q1) ----------------------
+
+# Public Parquet mirror of Imagenette (10-class ImageNet subset, ~320 px JPEGs,
+# no auth, no loading script). 10 images is enough to anchor the layer-wise
+# trajectory comparison without re-tuning any pipeline parameters.
+_NATURAL_MIRRORS = [
+    ("frgfm/imagenette", "full_size", "train"),
+    ("frgfm/imagenette", "320px",      "train"),
+]
+
+
+def download_natural(n: int = N_NATURAL) -> List[Path]:
+    """Stream `n` natural images for the Q1 layer-wise baseline."""
+    existing = sorted(NATURAL_DIR.glob("nat_*.png"))
+    if len(existing) >= n:
+        print(f"[data] re-using {len(existing)} cached natural images")
+        return existing[:n]
+
+    from datasets import load_dataset
+    last_err = None
+    for repo, cfg, split in _NATURAL_MIRRORS:
+        try:
+            print(f"[data] streaming natural baseline from {repo} ({cfg}/{split})")
+            ds = load_dataset(repo, cfg, split=split, streaming=True)
+            paths = []
+            for i, item in enumerate(ds):
+                if i >= n: break
+                img = item.get("image") or item.get("img") or item.get("pixel_values")
+                if img is None:
+                    raise KeyError(f"no image in {repo}; keys: {list(item.keys())}")
+                if img.mode != "RGB": img = img.convert("RGB")
+                p = NATURAL_DIR / f"nat_{i:02d}.png"
+                img.save(p); paths.append(p)
+            if len(paths) >= n:
+                print(f"[data] saved {len(paths)} natural images -> {NATURAL_DIR}")
+                return paths
+        except Exception as e:                       # noqa: BLE001
+            last_err = e
+            print(f"[data]   skipped ({type(e).__name__}: {e})")
+
+    raise RuntimeError(
+        "All natural-image mirrors failed. Fallback: drop 5–10 photo PNGs "
+        f"into {NATURAL_DIR} and rerun. Last error: {last_err}")
+
+
+def load_natural() -> List[Tuple[Image.Image, str]]:
+    paths = sorted(NATURAL_DIR.glob("nat_*.png"))
+    return [(Image.open(p), "natural") for p in paths]
 
 
 # -------------------------- unified loader -----------------------------------

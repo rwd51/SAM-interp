@@ -11,7 +11,8 @@ from __future__ import annotations
 import argparse
 import time
 
-from scripts import assemble, bootstrap_ci, download, q1, q1_cka, q2, q3
+from scripts import (assemble, bootstrap_ci, download,
+                     q0_natural, q1, q1_cka, q2, q3)
 
 
 def main() -> None:
@@ -19,8 +20,8 @@ def main() -> None:
     ap.add_argument("--sweep-blocks", type=int, default=4,
                     help="trailing blocks swept in Q3 (2 = fast, 4 = default)")
     ap.add_argument("--skip", nargs="*", default=[],
-                    choices=["download", "q1", "q1_cka", "q2", "q3",
-                             "bootstrap_ci", "assemble"],
+                    choices=["download", "q1", "q1_cka", "q0_natural",
+                             "q2", "q3", "bootstrap_ci", "assemble"],
                     help="stages to skip")
     args = ap.parse_args()
 
@@ -28,6 +29,7 @@ def main() -> None:
         ("download",     download.main,     {}),
         ("q1",           q1.main,           {}),
         ("q1_cka",       q1_cka.main,       {}),
+        ("q0_natural",   q0_natural.main,   {}),     # natural-image baseline (Q1)
         ("q2",           q2.main,           {}),
         ("q3",           q3.main,           {"sweep_blocks": args.sweep_blocks}),
         ("bootstrap_ci", bootstrap_ci.main, {}),
