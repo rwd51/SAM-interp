@@ -143,47 +143,44 @@ def download_mri(n: int = N_MRI) -> List[Path]:
 
 # -------------------------- natural-image baseline (Q1) ----------------------
 
-# Public Parquet mirror of Imagenette (10-class ImageNet subset, ~320 px JPEGs,
-# no auth, no loading script). 10 images is enough to anchor the layer-wise
-# trajectory comparison without re-tuning any pipeline parameters.
-_NATURAL_MIRRORS = [
-    ("frgfm/imagenette", "full_size", "train"),
-    ("frgfm/imagenette", "320px",      "train"),
+# Direct HTTPS download from the public COCO val2017 server. COCO has been
+# hosted at this URL pattern continuously since 2017 and requires no auth.
+# Each image is a real natural photograph (objects, people, scenes), which
+# is exactly what we want as a Q1 anchor against SAM's SA-1B pretraining.
+_COCO_VAL2017_BASE = "http://images.cocodataset.org/val2017/{:012d}.jpg"
+_NATURAL_COCO_IDS = [
+    139, 285, 632, 724, 776, 785, 802, 872, 885, 1000,
+    1268, 1296, 1353, 1425, 1490, 1503, 1532, 1584, 1675, 1761,
 ]
 
 
 def download_natural(n: int = N_NATURAL) -> List[Path]:
-    """Stream `n` natural images for the Q1 layer-wise baseline."""
+    """Download `n` natural photographs from COCO val2017 (public, no auth)."""
     existing = sorted(NATURAL_DIR.glob("nat_*.png"))
     if len(existing) >= n:
         print(f"[data] re-using {len(existing)} cached natural images")
         return existing[:n]
 
-    from datasets import load_dataset
-    last_err = None
-    for repo, cfg, split in _NATURAL_MIRRORS:
+    paths = []
+    for i, coco_id in enumerate(_NATURAL_COCO_IDS):
+        if len(paths) >= n: break
+        url = _COCO_VAL2017_BASE.format(coco_id)
+        out = NATURAL_DIR / f"nat_{i:02d}.png"
         try:
-            print(f"[data] streaming natural baseline from {repo} ({cfg}/{split})")
-            ds = load_dataset(repo, cfg, split=split, streaming=True)
-            paths = []
-            for i, item in enumerate(ds):
-                if i >= n: break
-                img = item.get("image") or item.get("img") or item.get("pixel_values")
-                if img is None:
-                    raise KeyError(f"no image in {repo}; keys: {list(item.keys())}")
-                if img.mode != "RGB": img = img.convert("RGB")
-                p = NATURAL_DIR / f"nat_{i:02d}.png"
-                img.save(p); paths.append(p)
-            if len(paths) >= n:
-                print(f"[data] saved {len(paths)} natural images -> {NATURAL_DIR}")
-                return paths
+            print(f"[data] fetching {url}")
+            urllib.request.urlretrieve(url, out.with_suffix(".jpg"))
+            Image.open(out.with_suffix(".jpg")).convert("RGB").save(out)
+            out.with_suffix(".jpg").unlink()
+            paths.append(out)
         except Exception as e:                       # noqa: BLE001
-            last_err = e
-            print(f"[data]   skipped ({type(e).__name__}: {e})")
+            print(f"[data]   skipped {url} ({type(e).__name__}: {e})")
 
-    raise RuntimeError(
-        "All natural-image mirrors failed. Fallback: drop 5–10 photo PNGs "
-        f"into {NATURAL_DIR} and rerun. Last error: {last_err}")
+    if len(paths) < n:
+        raise RuntimeError(
+            f"Only got {len(paths)} of {n} natural images from COCO. "
+            f"Fallback: drop ≥{n} photo PNGs into {NATURAL_DIR} and rerun.")
+    print(f"[data] saved {len(paths)} natural images -> {NATURAL_DIR}")
+    return paths
 
 
 def load_natural() -> List[Tuple[Image.Image, str]]:
