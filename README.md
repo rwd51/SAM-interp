@@ -1,6 +1,6 @@
 # SAM mechanistic interpretability on medical images
 
-Answers to the three-question CMU task (`Test-VLM-mech-interp.pdf`):
+Answers to the three-question :
 
 1. What do SAM's intermediate reps look like when fed a chest X-ray? Where does "medical" signal appear at all?
 2. Do the last four encoder layers separate X-rays from MRIs? Which layer separates them best?
