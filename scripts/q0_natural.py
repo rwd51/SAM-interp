@@ -35,14 +35,20 @@ def _pooled(tok: torch.Tensor) -> torch.Tensor:
 
 
 def _load_medical_pooled():
-    """Return pooled per-block features cached from scripts.q1, plus labels."""
+    """Return pooled per-block features cached from scripts.q1, plus labels.
+    Also returns per-image diagnostic arrays (norms, entropy) when present."""
     p = config.OUT_DIR / "q1_features.npz"
     if not p.exists():
         raise RuntimeError(f"Missing {p}. Run `python -m scripts.q1` first.")
     d = np.load(p, allow_pickle=True)
     labels = d["labels"]
     blocks = sorted(int(k.split("_")[1]) for k in d.files if k.startswith("block_"))
-    return {b: d[f"block_{b}"] for b in blocks}, labels, blocks
+    feats  = {b: d[f"block_{b}"] for b in blocks}
+    extra  = dict(
+        token_norms = d["token_norms_by_block"] if "token_norms_by_block" in d.files else None,
+        entropy     = d["entropy_by_block"]     if "entropy_by_block"     in d.files else None,
+    )
+    return feats, labels, blocks, extra
 
 
 def main() -> None:
@@ -57,28 +63,26 @@ def main() -> None:
     if not images:
         raise RuntimeError("No natural images on disk after download_natural().")
 
-    pooled_nat = {b: [] for b in block_ids}
-    norm_nat   = {b: [] for b in block_ids}
-    ent_rows   = []
+    pooled_nat   = {b: [] for b in block_ids}
+    norm_nat_per = {b: [] for b in block_ids}
+    ent_nat_per  = {b: [] for b in block_ids}
 
     set_store(entropy=True)
     for img, _ in tqdm(images, desc="q0_natural/encoding"):
         out = encode(img, block_ids=block_ids)
         for b in block_ids:
             tok = out["tokens"][b][0]
-            pooled_nat[b].append(_pooled(tok))
-            norm_nat  [b].append(tok.flatten(0, 1).norm(dim=-1).mean().item())
+            pooled_nat  [b].append(_pooled(tok))
+            norm_nat_per[b].append(tok.flatten(0, 1).norm(dim=-1).mean().item())
             ent = out["attn_entropy"].get(b)
-            if ent is not None:
-                ent_rows.append({"block": b, "entropy": ent.mean().item()})
+            ent_nat_per[b].append(ent.mean().item() if ent is not None else np.nan)
         del out; clear_cuda()
     set_store(entropy=False)
 
     pooled_nat = {b: torch.stack(v).numpy() for b, v in pooled_nat.items()}
-    ent_df = pd.DataFrame(ent_rows)
 
     # ---- pull X-ray and MRI from cache for the comparison ----
-    feats_med, labels, blocks = _load_medical_pooled()
+    feats_med, labels, blocks, med_extra = _load_medical_pooled()
     xi = np.where(labels == "xray")[0]
     mi = np.where(labels == "mri" )[0]
 
@@ -93,41 +97,63 @@ def main() -> None:
     for b in blocks:
         rows.append(dict(
             block=b,
-            norm_nat     = float(np.mean(norm_nat[b])),
+            norm_nat     = float(np.mean(norm_nat_per[b])),
             cka_nat_xray = linear_cka(pooled_nat[b], feats_med[b][xi_sub]),
             cka_nat_mri  = linear_cka(pooled_nat[b], feats_med[b][mi_sub]),
         ))
     summary = pd.DataFrame(rows)
     print(summary.to_string(index=False, float_format=lambda x: f"{x:.3f}"))
 
-    # ---- Fig 9: 3-panel overlay ----
+    # ---- per-block per-image diagnostics for medical (from q1 cache) ----
+    norms_med = med_extra["token_norms"]    # (n_blocks, n_imgs) or None
+    ent_med   = med_extra["entropy"]        # (n_blocks, n_imgs) or None
+    have_med_diag = norms_med is not None and ent_med is not None
+    if have_med_diag:
+        norms_xray_b = norms_med[:, xi].mean(axis=1)
+        norms_mri_b  = norms_med[:, mi].mean(axis=1)
+        ent_xray_b   = np.nanmean(ent_med[:, xi], axis=1)
+        ent_mri_b    = np.nanmean(ent_med[:, mi], axis=1)
+    else:
+        print("[q0_natural] note: q1_features.npz lacks per-image norm/entropy "
+              "arrays. Re-run scripts.q1 with the latest code to enable the "
+              "3-modality overlay in fig9.")
+
+    # ---- Fig 9: 3-panel overlay (Natural / X-ray / MRI) ----
     fig, axes = plt.subplots(1, 3, figsize=(13.0, 3.6),
                              gridspec_kw=dict(wspace=0.40))
 
-    # (a) attention entropy at global blocks — natural vs X-ray vs MRI
+    # natural-side per-block stats
+    ent_nat_b  = np.array([float(np.nanmean(ent_nat_per[b]))  for b in blocks])
+    norm_nat_b = np.array([float(np.mean(norm_nat_per[b]))    for b in blocks])
+
+    # (a) attention entropy at global blocks — Natural vs X-ray vs MRI
     ax = axes[0]
-    ent_med = config.OUT_DIR / "q1_features.npz"      # we don't have raw med entropies here
-    # Reconstruct medical entropy from a quick re-run is overkill; instead
-    # we just plot the natural trace and remind the reader of the medical
-    # numbers from Fig. 2(a). To keep this script self-contained though,
-    # we plot natural entropy alone.
-    means = ent_df.groupby("block")["entropy"].mean()
-    ax.plot(means.index, means.values, "-o", color=PALETTE["accent"],
-            markersize=6, linewidth=2.0, label="Natural")
+    gab_idx = [blocks.index(b) for b in global_attn]
+    ax.plot(global_attn, ent_nat_b[gab_idx], "-o",
+            color=PALETTE["accent"], markersize=6, linewidth=2.0, label="Natural")
+    if have_med_diag:
+        ax.plot(global_attn, ent_xray_b[gab_idx], "-o",
+                color=PALETTE["xray"], markersize=6, linewidth=2.0, label="X-ray")
+        ax.plot(global_attn, ent_mri_b[gab_idx], "-o",
+                color=PALETTE["mri"],  markersize=6, linewidth=2.0, label="MRI")
     ax.set_xlabel("Global-attn block")
     ax.set_ylabel("Attention entropy (nats)")
-    ax.set_title("(a) Natural-image attention entropy", loc="left")
-    ax.set_xticks(global_attn); ax.legend()
+    ax.set_title("(a) Attention entropy", loc="left")
+    ax.set_xticks(global_attn); ax.legend(loc="best")
 
-    # (b) natural-image token-norm trajectory (medical traces are in Fig 2c)
+    # (b) token-norm growth — three traces overlaid
     ax = axes[1]
-    ax.plot(blocks, summary["norm_nat"].values, "-o",
-            color=PALETTE["accent"], markersize=5, linewidth=1.8,
-            label="Natural")
+    ax.plot(blocks, norm_nat_b, "-o", color=PALETTE["accent"],
+            markersize=5, linewidth=1.8, label="Natural")
+    if have_med_diag:
+        ax.plot(blocks, norms_xray_b, "-o", color=PALETTE["xray"],
+                markersize=5, linewidth=1.8, label="X-ray")
+        ax.plot(blocks, norms_mri_b, "-o", color=PALETTE["mri"],
+                markersize=5, linewidth=1.8, label="MRI")
     ax.set_xlabel("Encoder block")
     ax.set_ylabel(r"mean per-token $\|\mathbf{z}\|_2$")
-    ax.set_title("(b) Natural-image token-norm growth", loc="left")
-    ax.set_xticks(blocks); ax.legend()
+    ax.set_title("(b) Token-norm growth", loc="left")
+    ax.set_xticks(blocks); ax.legend(loc="best")
 
     # (c) cross-CKA: how geometrically similar is "natural" to each medical modality?
     ax = axes[2]

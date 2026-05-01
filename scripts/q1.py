@@ -179,9 +179,23 @@ def main() -> None:
     fig.tight_layout(rect=[0, 0, 1, 0.97])
     save_fig(fig, "fig3_attention_maps_q1"); plt.close(fig)
 
-    # ---- dump features for Q2 ----
+    # ---- dump features + per-image diagnostics for downstream stages ----
+    # token_norms_by_block: (n_blocks, n_imgs) mean per-token L2 norm
+    # entropy_by_block:     (n_blocks, n_imgs) mean attention entropy
+    # entropy_rows are appended in (image-major, block-minor) order, all 12
+    # blocks captured per image (set_store(entropy=True) above).
+    norms_arr = np.array([token_norms[b] for b in block_ids])
+    ent_arr   = np.full((len(block_ids), len(images)), np.nan)
+    for k, row in enumerate(entropy_rows):
+        img_i = k // len(block_ids)
+        b_pos = block_ids.index(row["block"])
+        ent_arr[b_pos, img_i] = row["entropy"]
+
     np.savez(config.OUT_DIR / "q1_features.npz",
              labels=labels,
+             blocks=np.array(block_ids),
+             token_norms_by_block=norms_arr,        # (B, N)
+             entropy_by_block=ent_arr,              # (B, N), NaN where not computed
              **{f"block_{b}": pooled_feats[b] for b in block_ids},
              cross=cross, within_x=within_x, within_m=within_m)
     print(f"[q1] done -> {config.FIG_DIR}, {config.OUT_DIR / 'q1_features.npz'}")
