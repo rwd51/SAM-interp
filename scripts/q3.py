@@ -209,18 +209,30 @@ def main(sweep_blocks: int = 4) -> None:
     CKA_m = cka_mat(labels == "mri")
 
     # --- H2: pair-ablation probe -----------------------------------------------
-    pair_drops = []
+    # X-ray coherence gap = mean within-X-ray cos-sim − mean X-ray↔MRI cos-sim.
+    # For each partner p we report the EXTRA drop from co-ablating (k, p) over
+    # ablating k alone:  extra[p] = gap(k) − gap(k, p).  A redundancy partner
+    # is one whose extra drop is large, i.e. it was compensating for k.
+    xi_, mi_ = np.where(y == 0)[0], np.where(y == 1)[0]
+
+    def _xray_gap(feats: np.ndarray) -> float:
+        S = cosine_similarity(StandardScaler().fit_transform(feats))
+        return float(S[np.ix_(xi_, xi_)].mean() - S[np.ix_(xi_, mi_)].mean())
+
+    gap_base = _xray_gap(base_feats)
+    set_ablation(ABL_B, ABL_H)
+    gap_single = _xray_gap(_encode_pooled_at(target, images))
+    set_ablation(None, None)
+    single_drop = gap_base - gap_single
+
+    pair_extra = []
     for partner in range(n_heads):
         if partner == ABL_H:
-            pair_drops.append(0.0); continue
+            pair_extra.append(0.0); continue
         set_ablation_multi(ABL_B, [ABL_H, partner])
-        feats = _encode_pooled_at(target, images)
+        gap_pair = _xray_gap(_encode_pooled_at(target, images))
         set_ablation(None, None)
-        Xs = StandardScaler().fit_transform(feats)
-        S  = cosine_similarity(Xs)
-        inner = S[np.ix_(np.where(y == 0)[0], np.where(y == 0)[0])]
-        cross = S[np.ix_(np.where(y == 0)[0], np.where(y == 1)[0])]
-        pair_drops.append(inner.mean() - cross.mean())
+        pair_extra.append(gap_single - gap_pair)
 
     # ================== Fig 7 ==================
     # 3 panels with extra wspace so per-subplot titles don't collide.
@@ -260,11 +272,12 @@ def main(sweep_blocks: int = 4) -> None:
 
     # (c) pair-ablation probe
     ax = axes[2]
-    ax.bar(x_, pair_drops, 0.7, color=PALETTE["neutral"],
+    ax.bar(x_, pair_extra, 0.7, color=PALETTE["neutral"],
            edgecolor="black", linewidth=0.6)
     ax.axvspan(ABL_H - 0.5, ABL_H + 0.5, color="red", alpha=0.12)
     ax.set_xlabel("Co-ablated partner head", fontsize=12)
-    ax.set_ylabel("X-ray cluster coherence", fontsize=12)
+    ax.axhline(0, color="black", lw=0.6)
+    ax.set_ylabel("Extra X-ray coherence drop\nvs. single ablation", fontsize=12)
     ax.set_title("(c) H2: pair-ablation probe", loc="left", fontsize=12)
     ax.set_xticks(x_)
 
@@ -287,11 +300,17 @@ def main(sweep_blocks: int = 4) -> None:
     siblings = [i for i in range(n_heads) if i != ABL_H]
     cka_delta = float(np.abs(CKA_x[ABL_H, siblings] - CKA_m[ABL_H, siblings]).mean())
 
-    # Pair-ablation sensitivity: does any partner head, when co-ablated, cause
-    # a larger X-ray cluster degradation than the target alone?
-    best_partner = int(np.argmax([pair_drops[i] if i != ABL_H else -np.inf
-                                  for i in range(n_heads)]))
-    best_partner_drop = float(pair_drops[best_partner])
+    # Pair-ablation sensitivity: does any partner, when co-ablated, cause a
+    # markedly larger X-ray coherence drop than ablating k alone? All
+    # quantities here are in the same units (X-ray coherence gap).
+    siblings_extra = np.array([pair_extra[i] for i in siblings])
+    best_partner = siblings[int(np.argmax(siblings_extra))]
+    best_partner_extra = float(pair_extra[best_partner])
+    # Robust spread of the partner effects: a compensating partner must stand
+    # out from the other partners, not just be the max of noise.
+    med = float(np.median(siblings_extra))
+    mad = float(np.median(np.abs(siblings_extra - med))) + 1e-9
+    partner_z = (best_partner_extra - med) / (1.4826 * mad)
 
     # Magnitude of the overall Δsilhouette perturbation, vs baseline separation.
     max_effect = float(abl_df["delta_sil"].abs().max())
@@ -300,7 +319,9 @@ def main(sweep_blocks: int = 4) -> None:
 
     # --- decision rules ---
     h1_supported = norm_ratio > 2.0 or norm_ratio < 0.5      # truly modality-specialist
-    h2_supported = cka_delta > 0.10 and best_partner_drop > 2 * max_effect
+    h2_supported = (cka_delta > 0.10
+                    and best_partner_extra > 2 * abs(single_drop)
+                    and partner_z > 3.0)
     h3_supported = effect_frac < 0.05 and not (h1_supported or h2_supported)
 
     print("\n" + "=" * 66)
@@ -309,8 +330,10 @@ def main(sweep_blocks: int = 4) -> None:
     print(f"  Per-modality activation norm:  X-ray={xr_norm:.2f}  MRI={mr_norm:.2f}  "
           f"(MRI/X-ray ratio = {norm_ratio:.2f})")
     print(f"  Mean |CKA_xray − CKA_mri| to sibling heads:  {cka_delta:.3f}")
+    print(f"  X-ray coherence gap: baseline={gap_base:.3f}  "
+          f"H{ABL_H} ablated={gap_single:.3f}  (drop {single_drop:+.3f})")
     print(f"  Best X-ray redundancy partner: H{best_partner}  "
-          f"(coherence drop {best_partner_drop:+.3f})")
+          f"(extra drop {best_partner_extra:+.3f}, robust z={partner_z:.1f})")
     print(f"  Largest |Δsilhouette| across sweep: {max_effect:.4f}  "
           f"(= {effect_frac*100:.1f}% of baseline silhouette {baseline_sil:.3f})")
     print("-" * 66)
@@ -319,7 +342,8 @@ def main(sweep_blocks: int = 4) -> None:
           f"[needs norm-ratio outside (0.5, 2.0)]")
     print(f"  H2 (redundancy asymmetry):       "
           f"{'SUPPORTED' if h2_supported else 'REJECTED'}   "
-          f"[needs CKA-delta > 0.10 and a compensating partner]")
+          f"[needs CKA-delta > 0.10 and a partner whose extra drop is\n"
+          f"                                     > 2x the single drop and robust z > 3]")
     print(f"  H3 (distributed modality signal):"
           f"{' SUPPORTED' if h3_supported else ' REJECTED'}   "
           f"[needs max effect < 5% of baseline, and H1/H2 both rejected]")
@@ -341,7 +365,9 @@ def main(sweep_blocks: int = 4) -> None:
         abl_block=ABL_B, abl_head=ABL_H,
         norm_xray=xr_norm, norm_mri=mr_norm, norm_ratio=norm_ratio,
         cka_delta=cka_delta,
-        best_partner=best_partner, best_partner_drop=best_partner_drop,
+        gap_base=gap_base, gap_single=gap_single, single_drop=single_drop,
+        best_partner=best_partner, best_partner_extra=best_partner_extra,
+        partner_z=partner_z,
         max_effect=max_effect, baseline_sil=baseline_sil, effect_frac=effect_frac,
         h1=h1_supported, h2=h2_supported, h3=h3_supported,
     )

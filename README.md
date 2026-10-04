@@ -109,6 +109,7 @@ figures/
 outputs/
   q1_features.npz
   q2_metrics.csv
+  q2_pixel_baseline.csv         # raw-pixel control for Q2
   q3_ablation_sweep.csv
 ```
 
